@@ -1,1 +1,1 @@
-# Entity Framework környezet
+// Entity Framework környezet

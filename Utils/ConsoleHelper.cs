@@ -1,1 +1,3 @@
-# Színezés, táblázatok, élő állapot formázása
+/// <summary>
+/// Színezés, táblázatok, élő állapot formázása
+/// </summary>

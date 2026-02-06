@@ -1,0 +1,1 @@
+# Kezdőadatok (zónák, futárok generálása)

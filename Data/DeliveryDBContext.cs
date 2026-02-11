@@ -17,6 +17,13 @@ public class DeliveryDBContext : DbContext
     public DbSet<StatusHistory> StatusHistories { get; set; } = null!;
 
     /// <summary>
+    /// Paramétermentes konstruktor - EF Tools design-time használatra.
+    /// </summary>
+    public DeliveryDBContext()
+    {
+    }
+
+    /// <summary>
     /// Konstruktor, amely paraméterként kapja az adatbázis beállításokat.
     /// </summary>
     public DeliveryDBContext(DbContextOptions<DeliveryDBContext> options) : base(options)
@@ -45,37 +52,34 @@ public class DeliveryDBContext : DbContext
         // DeliveryOrder konfiguráció
         modelBuilder.Entity<DeliveryOrder>(entity =>
         {
-            entity.HasKey(e => e.Id); // Elsődleges kulcs
+            entity.HasKey(e => e.Id);
 
-            // Kapcsolat a Zone-hoz (Egy zone-hoz több order is tartozhat)
             entity.HasOne<Zone>()
                 .WithMany()
                 .HasForeignKey(e => e.ZoneId)
-                .OnDelete(DeleteBehavior.Restrict); // Nem lehet törölni zone-t, ha van hozzá order
+                .OnDelete(DeleteBehavior.Restrict);
 
-            // Kapcsolat a Courier-hoz (Egy courier több ordert is kiszállíthat)
             entity.HasOne<Courier>()
                 .WithMany()
                 .HasForeignKey(e => e.AssignedCourierId)
-                .OnDelete(DeleteBehavior.SetNull); // Ha törlődik a courier, az order marad, de nullázódik a hozzárendelés
+                .OnDelete(DeleteBehavior.SetNull);
 
-            // Index a státusz alapú kereséshez (gyakori lekérdezés lesz)
             entity.HasIndex(e => e.Status);
-            entity.HasIndex(e => e.Deadline); // Késések ellenőrzéséhez
+            entity.HasIndex(e => e.Deadline);
         });
 
         // Courier konfiguráció
         modelBuilder.Entity<Courier>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.IsAvailable); // Gyors keresés szabad futárokhoz
+            entity.HasIndex(e => e.IsAvailable);
         });
 
         // Zone konfiguráció
         modelBuilder.Entity<Zone>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.Name); // Zóna név alapú keresés
+            entity.HasIndex(e => e.Name);
         });
 
         // RoutePlan konfiguráció
@@ -83,11 +87,10 @@ public class DeliveryDBContext : DbContext
         {
             entity.HasKey(e => e.Id);
 
-            // Kapcsolat a Courier-hoz
             entity.HasOne<Courier>()
                 .WithMany()
                 .HasForeignKey(e => e.CourierId)
-                .OnDelete(DeleteBehavior.Cascade); // Ha courier törlődik, vele mennek az útvonaltervei is
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // StatusHistory konfiguráció
@@ -95,14 +98,12 @@ public class DeliveryDBContext : DbContext
         {
             entity.HasKey(e => e.Id);
 
-            // Kapcsolat a DeliveryOrder-hez
             entity.HasOne<DeliveryOrder>()
                 .WithMany()
-                .HasForeignKey(e => e.DeliveryOrderId) // ← JAVÍTVA: DeliveryOrderId
-                .OnDelete(DeleteBehavior.Cascade); // Ha order törlődik, vele megy a történet is
+                .HasForeignKey(e => e.DeliveryOrderId)
+                .OnDelete(DeleteBehavior.Cascade);
 
-            // Index az idő alapú lekérdezésekhez
-            entity.HasIndex(e => e.Timestamp); // ← JAVÍTVA: Timestamp
+            entity.HasIndex(e => e.Timestamp);
         });
     }
 }

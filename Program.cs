@@ -1,5 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
-
+﻿using System;
 using package_delivery_simulator.Domain.Entities;
 
 class Program

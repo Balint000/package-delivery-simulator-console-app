@@ -1,0 +1,1 @@
+namespace package_delivery_simulator.Domain.Entities;

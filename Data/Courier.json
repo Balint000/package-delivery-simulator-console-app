@@ -1,0 +1,57 @@
+[
+  {
+    "id": 1,
+    "name": "Kovács János",
+    "currentLocation": {
+      "x": 47.5,
+      "y": 19.05
+    },
+    "status": "Available",
+    "assignedZoneIds": [1, 2],
+    "assignedOrderIds": []
+  },
+  {
+    "id": 2,
+    "name": "Nagy Eszter",
+    "currentLocation": {
+      "x": 47.52,
+      "y": 19.08
+    },
+    "status": "Available",
+    "assignedZoneIds": [2, 3],
+    "assignedOrderIds": []
+  },
+  {
+    "id": 3,
+    "name": "Tóth Péter",
+    "currentLocation": {
+      "x": 47.48,
+      "y": 19.02
+    },
+    "status": "Available",
+    "assignedZoneIds": [1, 4],
+    "assignedOrderIds": []
+  },
+  {
+    "id": 4,
+    "name": "Szabó Anna",
+    "currentLocation": {
+      "x": 47.51,
+      "y": 19.06
+    },
+    "status": "Available",
+    "assignedZoneIds": [3, 4],
+    "assignedOrderIds": []
+  },
+  {
+    "id": 5,
+    "name": "Kiss Gábor",
+    "currentLocation": {
+      "x": 47.49,
+      "y": 19.04
+    },
+    "status": "Available",
+    "assignedZoneIds": [1, 2, 3],
+    "assignedOrderIds": []
+  }
+]

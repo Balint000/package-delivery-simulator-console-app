@@ -1,5 +1,7 @@
 namespace package_delivery_simulator.Domain.Entities;
 
+using System;
+using System.Collections.Generic;
 using package_delivery_simulator.Domain.ValueObjects;
 
 public class Zone

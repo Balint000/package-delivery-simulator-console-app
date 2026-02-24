@@ -2,6 +2,8 @@
 using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
 using package_delivery_simulator.Domain.ValueObjects;
+using package_delivery_simulator.Services.Notification; // Értesítés
+
 
 class Program
 {
@@ -51,5 +53,26 @@ class Program
         Console.WriteLine();
 
         Console.WriteLine($"Distance between courier and order: {distance:F2}");
+
+        // Értesítés demo
+        Console.WriteLine();
+        var notificationService = new NotificationService();
+
+        // 1) Státuszváltások demója
+        notificationService.NotifyStatusChange(order, "Pending", "Assigned");
+        order.Status = OrderStatus.Assigned;
+
+        notificationService.NotifyStatusChange(order, "Assigned", "InTransit");
+        order.Status = OrderStatus.InTransit;
+
+        // 2) Késés demója
+        var delay = TimeSpan.FromMinutes(15);
+        notificationService.NotifyDelay(order, delay);
+
+        // 3) Kézbesítés demója
+        order.Status = OrderStatus.Delivered;
+        order.DeliveredAt = DateTime.Now.AddMinutes(45);
+        notificationService.NotifyDeliveryComplete(order);
     }
+
 }

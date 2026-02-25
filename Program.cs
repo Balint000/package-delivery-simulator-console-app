@@ -2,6 +2,8 @@
 using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
 using package_delivery_simulator.Domain.ValueObjects;
+using package_delivery_simulator.Services.Interfaces;
+using package_delivery_simulator.Services.StatusTracking;
 
 class Program
 {
@@ -51,5 +53,46 @@ class Program
         Console.WriteLine();
 
         Console.WriteLine($"Distance between courier and order: {distance:F2}");
+
+        // ===============================
+        // StatusHistory DEMÓ
+        // ===============================
+        Console.WriteLine();
+        Console.WriteLine();
+
+        // Létrehozzuk a státusztörténet szolgáltatást.
+        // Jelenleg ez egy in-memory implementáció (StatusHistoryService),
+        // amely egy listában tárolja a státuszváltásokat.
+        // Később ezt az implementációt ki lehet cserélni olyanra,
+        // ami JSON-ba vagy SQLite adatbázisba ment.
+        StatusHistoryServiceInterface statusHistoryService = new StatusHistoryService();
+
+        // Kiinduló státusz: a rendelés jelenlegi státusza (Pending).
+        var oldStatus = order.Status;
+
+        // 1) Pending -> Assigned
+        order.Status = OrderStatus.Assigned;
+        statusHistoryService.CreateEntry(order.Id, oldStatus, order.Status);
+
+        // 2) Assigned -> InTransit
+        oldStatus = order.Status;
+        order.Status = OrderStatus.InTransit;
+        statusHistoryService.CreateEntry(order.Id, oldStatus, order.Status);
+
+        // 3) InTransit -> Delivered
+        oldStatus = order.Status;
+        order.Status = OrderStatus.Delivered;
+        statusHistoryService.CreateEntry(order.Id, oldStatus, order.Status);
+
+        // A history kiírása a konzolra, hogy lássuk,
+        // milyen sorrendben változott a rendelés státusza.
+        Console.WriteLine("Status history for order:");
+        var historyEntries = statusHistoryService.GetHistoryForOrder(order.Id);
+
+        foreach (var entry in historyEntries)
+        {
+            Console.WriteLine(
+                $"{entry.ChangedAt:HH:mm:ss} - {entry.OldStatus} -> {entry.NewStatus}");
+        }
     }
 }

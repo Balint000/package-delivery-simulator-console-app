@@ -40,4 +40,20 @@ public class Courier
     /// List of order IDs currently assigned to the courier.
     /// </summary>
     public List<int> AssignedOrderIds { get; set; } = new();
+
+    /// <summary>
+    /// Melyik gráf node-on van jelenleg a futár.
+    /// 0 = raktár, 1-N = delivery pontok.
+    /// </summary>
+    public int CurrentNodeId { get; set; } = 0;
+
+    /// <summary>
+    /// Összes kézbesített csomag száma (szimuláció alatt).
+    /// </summary>
+    public int TotalDeliveries { get; set; } = 0;
+
+    /// <summary>
+    /// Van-e épp aktív kézbesítése a futárnak?
+    /// </summary>
+    public bool IsDelivering => AssignedOrderIds.Count > 0;
 }

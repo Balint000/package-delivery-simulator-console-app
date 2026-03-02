@@ -1,164 +1,168 @@
-﻿using System;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using package_delivery_simulator.Domain.Entities;
+﻿using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
-using package_delivery_simulator.Infrastructure.Graph;
-using package_delivery_simulator.Infrastructure.Loaders;
+using package_delivery_simulator.Domain.ValueObjects;
+using package_delivery_simulator.Services.Delivery;
+using package_delivery_simulator.Presentation.Console;
 
-class Program
+// UTF-8 encoding a magyar karakterekhez (ékezetek)
+System.Console.OutputEncoding = System.Text.Encoding.UTF8;
+
+Console.WriteLine("🚀 Csomagkézbesítés Szimuláció - TPL Edition");
+Console.WriteLine("============================================\n");
+
+// ===== 1. VÁROS/GRÁF BETÖLTÉSE =====
+// TODO: A te gráf betöltő kódod ide!
+// Pl: var cityGraph = CityGraphLoader.LoadFromJson("Data/city-graph.json");
+// ÁTMENETI: null objektum (később cseréld ki!)
+object cityGraph = new object();
+
+Console.WriteLine("✅ Város gráf betöltve!");
+
+// ===== 2. DELIVERY SERVICE LÉTREHOZÁSA =====
+var deliveryService = new DeliveryService(cityGraph);
+
+// ===== 3. FUTÁROK HOZZÁADÁSA =====
+deliveryService.AddCourier(new Courier
 {
-    static void Main()
+    Id = 1,
+    Name = "Kovács Péter",
+    CurrentNodeId = 0 // Raktár
+});
+
+deliveryService.AddCourier(new Courier
+{
+    Id = 2,
+    Name = "Nagy Anna",
+    CurrentNodeId = 0
+});
+
+deliveryService.AddCourier(new Courier
+{
+    Id = 3,
+    Name = "Szabó Gábor",
+    CurrentNodeId = 0
+});
+
+Console.WriteLine("✅ 3 futár hozzáadva!");
+
+// ===== 4. RENDELÉSEK GENERÁLÁSA =====
+var random = new Random();
+int orderCount = 10;
+
+for (int i = 1; i <= orderCount; i++)
+{
+    deliveryService.AddOrder(new DeliveryOrder
     {
-        Console.WriteLine("╔════════════════════════════════════════════════╗");
-        Console.WriteLine("║   🚚 PACKAGE DELIVERY SIMULATION - JSON DEMO  ║");
-        Console.WriteLine("╚════════════════════════════════════════════════╝\n");
-
-        // ===== 1. VÁROS BETÖLTÉSE JSON-BŐL =====
-        string jsonPath = Path.Combine("Data", "city-graph.json");
-        CityGraph cityGraph;
-
-        try
-        {
-            cityGraph = CityGraphLoader.LoadFromJson(jsonPath);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Error loading city graph: {ex.Message}");
-            Console.WriteLine("\nPress any key to exit...");
-            Console.ReadKey();
-            return;
-        }
-
-        // Gráf kiírása
-        cityGraph.PrintGraph();
-
-        // ===== 2. FUTÁR ÉS RENDELÉS =====
-        Console.WriteLine("STEP 2: Creating delivery scenario...\n");
-
-        var warehouseNode = cityGraph.GetNode(0);  // Central Warehouse
-        var targetNode = cityGraph.GetNode(1);     // North District
-
-        Courier courier = new Courier
-        {
-            Id = 1,
-            Name = "Kovács Péter",
-            CurrentLocation = warehouseNode.Location,
-            Status = CourierStatus.Available
-        };
-
-        DeliveryOrder order = new DeliveryOrder
-        {
-            Id = 101,
-            OrderNumber = "ORD-00101",
-            CustomerName = "Nagy István",
-            AddressText = "North District, Main Street 42",
-            AddressLocation = targetNode.Location,
-            ZoneId = 1,
-            Status = OrderStatus.Pending,
-            CreatedAt = DateTime.Now
-        };
-
-        Console.WriteLine($"👤 Courier: {courier.Name}");
-        Console.WriteLine($"   Start: {warehouseNode.Name}");
-        Console.WriteLine($"\n📦 Order: {order.OrderNumber}");
-        Console.WriteLine($"   Destination: {targetNode.Name}");
-        Console.WriteLine($"   Customer: {order.CustomerName}");
-
-        // ===== 3. IDEÁLIS VS AKTUÁLIS IDŐ =====
-        Console.WriteLine("\n" + new string('=', 60));
-        Console.WriteLine("STEP 3: Calculating delivery times...\n");
-
-        int idealTime = cityGraph.CalculateIdealTime(0, 1);
-        var (path, actualTime) = cityGraph.FindShortestPath(0, 1);
-
-        Console.WriteLine($"⏱️  Ideal time (no traffic): {idealTime} minutes");
-        Console.WriteLine($"🚦 Current time (with traffic): {actualTime} minutes");
-
-        if (actualTime > idealTime)
-        {
-            int delay = actualTime - idealTime;
-            double delayPercent = (double)delay / idealTime * 100;
-
-            Console.ForegroundColor = actualTime > idealTime * 1.2
-                ? ConsoleColor.Red
-                : ConsoleColor.Yellow;
-
-            Console.WriteLine($"⚠️  Delay: +{delay} min ({delayPercent:F1}%)");
-
-            if (actualTime > idealTime * 1.2)
-            {
-                Console.WriteLine("📧 Customer notification sent!");
-            }
-
-            Console.ResetColor();
-        }
-        else
-        {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("✅ On schedule!");
-            Console.ResetColor();
-        }
-
-        // Útvonal kiírása
-        cityGraph.PrintPath(path, actualTime);
-
-        // ===== 4. INTERAKTÍV SZIMULÁCIÓ =====
-        Console.WriteLine("\n" + new string('=', 60));
-        Console.WriteLine("STEP 4: Simulating delivery route...");
-        Console.WriteLine("(Press any key to start simulation)\n");
-        Console.ReadKey();
-
-        for (int i = 0; i < path.Count - 1; i++)
-        {
-            int fromId = path[i];
-            int toId = path[i + 1];
-
-            var fromNode = cityGraph.GetNode(fromId);
-            var toNode = cityGraph.GetNode(toId);
-            var edge = cityGraph.GetEdge(fromId, toId);
-
-            Console.WriteLine($"\n🚗 Segment {i + 1}/{path.Count - 1}:");
-            Console.WriteLine($"   {fromNode.Name} → {toNode.Name}");
-            Console.WriteLine($"   Distance: {edge.CurrentTimeMinutes} min");
-            Console.WriteLine($"   Traffic: {edge.TrafficMultiplier:F2}x");
-
-            // Animált progressbar
-            Console.Write("   [");
-            for (int j = 0; j < 30; j++)
-            {
-                Thread.Sleep(edge.CurrentTimeMinutes * 5);
-                Console.Write("█");
-            }
-            Console.WriteLine("]");
-
-            // Forgalom frissítés
-            cityGraph.RegisterCourierMovement(fromId, toId);
-            cityGraph.UpdateTrafficConditions();
-        }
-
-        // ===== 5. BEFEJEZÉS =====
-        Console.WriteLine("\n" + new string('=', 60));
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("✅ DELIVERY COMPLETED!");
-        Console.ResetColor();
-
-        order.Status = OrderStatus.Delivered;
-        courier.CurrentLocation = targetNode.Location;
-
-        Console.WriteLine($"\n📍 Package delivered to: {targetNode.Name}");
-        Console.WriteLine($"📦 Order status: {order.Status}");
-
-        // Forgalom hatás ellenőrzése
-        var (_, newTime) = cityGraph.FindShortestPath(0, 1);
-        Console.WriteLine($"\n📊 Traffic impact:");
-        Console.WriteLine($"   Before: {actualTime} min");
-        Console.WriteLine($"   After:  {newTime} min");
-        Console.WriteLine($"   Change: {(newTime > actualTime ? "+" : "")}{newTime - actualTime} min");
-
-        Console.WriteLine("\n" + new string('=', 60));
-        Console.WriteLine("\nPress any key to exit...");
-        Console.ReadKey();
-    }
+        Id = i,
+        OrderNumber = $"ORD-{i:D5}",
+        CustomerName = $"Ügyfél #{i}",
+        AddressText = $"Cím {i}",
+        AddressLocation = new Location(random.Next(1, 100), random.Next(1, 100)),
+        ZoneId = random.Next(1, 4),
+        Status = OrderStatus.Pending,
+        CreatedAt = DateTime.Now,
+        ExpectedDeliveryTime = DateTime.Now.AddMinutes(15) // 15 perc a cél
+    });
 }
+
+Console.WriteLine($"✅ {orderCount} rendelés generálva!\n");
+
+// ===== 5. ÉLŐJE UI LÉTREHOZÁSA =====
+var ui = new LiveConsoleUI();
+
+// ===== 6. CANCELLATION TOKEN (CTRL+C kezelés) =====
+var cancellationTokenSource = new CancellationTokenSource();
+
+// CTRL+C esemény figyelése
+Console.CancelKeyPress += (sender, e) =>
+{
+    e.Cancel = true; // Nem lép ki azonnal
+    Console.WriteLine("\n\n⏹️  Leállítás folyamatban...");
+    cancellationTokenSource.Cancel();
+};
+
+// ===== 7. INDÍTÁS =====
+Console.WriteLine("🚀 Nyomj ENTER-t a szimuláció indításához...");
+Console.ReadLine();
+
+// ===== 8. UI INICIALIZÁLÁS =====
+ui.Initialize();
+
+// ===== 9. SZIMULÁCIÓ ÉS UI FRISSÍTÉS PÁRHUZAMOSAN =====
+
+// Szimuláció Task (párhuzamos futárok)
+var simulationTask = Task.Run(async () =>
+{
+    await deliveryService.RunSimulationAsync(cancellationTokenSource.Token);
+}, cancellationTokenSource.Token);
+
+// UI frissítő Task (500ms-enként frissít)
+var uiTask = Task.Run(async () =>
+{
+    while (!cancellationTokenSource.Token.IsCancellationRequested)
+    {
+        // Adatok lekérése a service-ből
+        var couriers = deliveryService.GetCouriers();
+        var orders = deliveryService.GetOrders();
+        var (totalDeliveries, totalDelays) = deliveryService.GetStatistics();
+
+        // Statisztikák objektum
+        var stats = new SimulationStats
+        {
+            TotalDeliveries = totalDeliveries,
+            TotalDelays = totalDelays
+        };
+
+        // UI frissítés (500ms-enként)
+        ui.Update(couriers, orders, stats);
+
+        // Várakozás
+        await Task.Delay(500, cancellationTokenSource.Token);
+    }
+}, cancellationTokenSource.Token);
+
+// ===== 10. VÁRUNK A BEFEJEZÉSRE =====
+try
+{
+    // Mindkét Task-ra várunk (szimuláció ÉS UI)
+    await Task.WhenAll(simulationTask, uiTask);
+}
+catch (OperationCanceledException)
+{
+    // Normális leállítás (CTRL+C)
+}
+
+// ===== 11. CLEANUP =====
+ui.Cleanup();
+
+// ===== 12. VÉGSŐ STATISZTIKA =====
+Console.Clear();
+Console.ForegroundColor = ConsoleColor.Green;
+Console.WriteLine("\n╔═══════════════════════════════════════════════════════════════════════╗");
+Console.WriteLine("║                    ✅ SZIMULÁCIÓ BEFEJEZVE                            ║");
+Console.WriteLine("╚═══════════════════════════════════════════════════════════════════════╝\n");
+Console.ResetColor();
+
+var (finalDeliveries, finalDelays) = deliveryService.GetStatistics();
+
+Console.WriteLine("📊 VÉGSŐ STATISZTIKÁK:");
+Console.WriteLine("───────────────────────────────────────────────────────────────────────");
+Console.WriteLine($"Összes kézbesítés:  {finalDeliveries}");
+Console.WriteLine($"Késések száma:      {finalDelays}");
+
+if (finalDeliveries > 0)
+{
+    double delayRate = (double)finalDelays / finalDeliveries * 100;
+    Console.WriteLine($"Késési arány:       {delayRate:F1}%");
+}
+
+Console.WriteLine("\n👥 FUTÁR TELJESÍTMÉNYEK:");
+Console.WriteLine("───────────────────────────────────────────────────────────────────────");
+
+foreach (var courier in deliveryService.GetCouriers().OrderByDescending(c => c.TotalDeliveries))
+{
+    Console.WriteLine($"{courier.Name,-20}: {courier.TotalDeliveries,3} kézbesítés");
+}
+
+Console.WriteLine("\n🎉 Nyomj meg egy billentyűt a kilépéshez...");
+Console.ReadKey();

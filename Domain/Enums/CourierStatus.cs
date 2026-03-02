@@ -16,11 +16,11 @@ public enum CourierStatus
     /// Courier is currently busy delivering packages.
     /// Should not be assigned new orders until current deliveries are completed.
     /// </summary>
-    Busy = 1,
+    Delivering = 1,
 
     /// <summary>
     /// Courier is off duty and not available for any assignments.
     /// Could be on break, end of shift, or not working today.
     /// </summary>
-    OffDuty = 2
+    Offline = 2
 }

@@ -1,168 +1,126 @@
-﻿using package_delivery_simulator.Domain.Entities;
-using package_delivery_simulator.Domain.Enums;
-using package_delivery_simulator.Domain.ValueObjects;
-using package_delivery_simulator.Services.Delivery;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using package_delivery_simulator.Presentation.Console;
+using package_delivery_simulator.Services.Delivery;
+using package_delivery_simulator.Services.Interfaces;
+using package_delivery_simulator.Services.Notification;
+using package_delivery_simulator.Services.Routing;
+using package_delivery_simulator.Services.Simulation;
 
 // UTF-8 encoding a magyar karakterekhez (ékezetek)
 System.Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-Console.WriteLine("🚀 Csomagkézbesítés Szimuláció - TPL Edition");
-Console.WriteLine("============================================\n");
+// ╔════════════════════════════════════════════════════════════════════════╗
+// ║                      .NET GENERIC HOST SETUP                            ║
+// ║                                                                          ║
+// ║  Ez a modern .NET alkalmazások életciklus-kezelése.                     ║
+// ║  Funkcióik:                                                              ║
+// ║  - Dependency Injection (szolgáltatások regisztrálása)                  ║
+// ║  - Structured Logging (ILogger)                                          ║
+// ║  - Configuration (appsettings.json)                                      ║
+// ║  - Graceful Shutdown (CTRL+C kezelés beépítve)                          ║
+// ║                                                                          ║
+// ║  A Program.cs mostantól csak egy VÉKONY ENTRY POINT!                    ║
+// ║  Az üzleti logika a SimulationRunner szolgáltatásban van.               ║
+// ╚════════════════════════════════════════════════════════════════════════╝
 
-// ===== 1. VÁROS/GRÁF BETÖLTÉSE =====
-// TODO: A te gráf betöltő kódod ide!
-// Pl: var cityGraph = CityGraphLoader.LoadFromJson("Data/city-graph.json");
-// ÁTMENETI: null objektum (később cseréld ki!)
-object cityGraph = new object();
-
-Console.WriteLine("✅ Város gráf betöltve!");
-
-// ===== 2. DELIVERY SERVICE LÉTREHOZÁSA =====
-var deliveryService = new DeliveryService(cityGraph);
-
-// ===== 3. FUTÁROK HOZZÁADÁSA =====
-deliveryService.AddCourier(new Courier
-{
-    Id = 1,
-    Name = "Kovács Péter",
-    CurrentNodeId = 0 // Raktár
-});
-
-deliveryService.AddCourier(new Courier
-{
-    Id = 2,
-    Name = "Nagy Anna",
-    CurrentNodeId = 0
-});
-
-deliveryService.AddCourier(new Courier
-{
-    Id = 3,
-    Name = "Szabó Gábor",
-    CurrentNodeId = 0
-});
-
-Console.WriteLine("✅ 3 futár hozzáadva!");
-
-// ===== 4. RENDELÉSEK GENERÁLÁSA =====
-var random = new Random();
-int orderCount = 10;
-
-for (int i = 1; i <= orderCount; i++)
-{
-    deliveryService.AddOrder(new DeliveryOrder
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices((context, services) =>
     {
-        Id = i,
-        OrderNumber = $"ORD-{i:D5}",
-        CustomerName = $"Ügyfél #{i}",
-        AddressText = $"Cím {i}",
-        AddressLocation = new Location(random.Next(1, 100), random.Next(1, 100)),
-        ZoneId = random.Next(1, 4),
-        Status = OrderStatus.Pending,
-        CreatedAt = DateTime.Now,
-        ExpectedDeliveryTime = DateTime.Now.AddMinutes(15) // 15 perc a cél
-    });
-}
+        // ===== SZOLGÁLTATÁSOK REGISZTRÁLÁSA (DEPENDENCY INJECTION) =====
 
-Console.WriteLine($"✅ {orderCount} rendelés generálva!\n");
+        // Singletonok: egész alkalmazás életciklusa alatt egy példány
+        // - CityGraph: városi gráf modell (később töltsd be JSON-ből!)
+        services.AddSingleton<object>(sp => new object()); // PLACEHOLDER - cseréld ki CityGraph-ra!
 
-// ===== 5. ÉLŐJE UI LÉTREHOZÁSA =====
-var ui = new LiveConsoleUI();
+        // Scoped szolgáltatások: kérésenkénti/futásonként új példány
+        // (Console appnál gyakorlatilag Singleton viselkedésű lesz)
 
-// ===== 6. CANCELLATION TOKEN (CTRL+C kezelés) =====
+        // Routing szolgáltatás: GREEDY (nearest neighbor) algoritmus
+        services.AddScoped<IRouteOptimizationService, GreedyRouteOptimizationService>();
+
+        // Notification szolgáltatás: késés értesítés
+        services.AddScoped<INotificationService, ConsoleNotificationService>();
+
+        // Delivery szolgáltatás: fő szimuláció logika (TPL)
+        services.AddScoped<IDeliveryService, DeliveryService>();
+
+        // Live Console UI: élő státusz megjelenítés
+        services.AddScoped<ILiveConsoleUI, LiveConsoleUI>();
+
+        // Szimuláció futtató: koordinálja az egész folyamatot
+        services.AddScoped<SimulationRunner>();
+
+        // TODO KÉSŐBB: EF Core DbContext regisztrálása
+        // services.AddDbContext<DeliveryDbContext>(options =>
+        //     options.UseSqlite(context.Configuration.GetConnectionString("DefaultConnection")));
+    })
+    .ConfigureLogging(logging =>
+    {
+        // ===== LOGGING KONFIGURÁCIÓ =====
+
+        // Alapértelmezett provider-ek törlése (FileLogger, EventLog, stb.)
+        logging.ClearProviders();
+
+        // Csak Console logging (egyszerű, debug-olható)
+        logging.AddConsole();
+
+        // Log szint: Information (Debug, Information, Warning, Error, Critical)
+        // Debug részletesebb, Information: csak fontos dolgok
+        logging.SetMinimumLevel(LogLevel.Information);
+    })
+    .Build();
+
+// ╔════════════════════════════════════════════════════════════════════════╗
+// ║                      CANCELLATION TOKEN SETUP                            ║
+// ║                                                                          ║
+// ║  CTRL+C kezelés: ha a felhasználó megnyomja, a CancellationToken        ║
+// ║  jelzést küld az összes futó Task-nak, hogy fejezzék be a munkát.       ║
+// ║                                                                          ║
+// ║  Ez a .NET ajánlott módja a graceful shutdown-ra.                        ║
+// ╚════════════════════════════════════════════════════════════════════════╝
+
 var cancellationTokenSource = new CancellationTokenSource();
 
 // CTRL+C esemény figyelése
-Console.CancelKeyPress += (sender, e) =>
+System.Console.CancelKeyPress += (sender, e) =>
 {
-    e.Cancel = true; // Nem lép ki azonnal
-    Console.WriteLine("\n\n⏹️  Leállítás folyamatban...");
+    e.Cancel = true; // Nem lép ki azonnal, hanem várunk a cleanup-ra
+    System.Console.WriteLine("\n\n⏹️  Leállítás folyamatban...");
     cancellationTokenSource.Cancel();
 };
 
-// ===== 7. INDÍTÁS =====
-Console.WriteLine("🚀 Nyomj ENTER-t a szimuláció indításához...");
-Console.ReadLine();
+// ╔════════════════════════════════════════════════════════════════════════╗
+// ║                      SZIMULÁCIÓ INDÍTÁSA                                 ║
+// ║                                                                          ║
+// ║  A SimulationRunner szolgáltatást a DI container-ből kérjük ki.         ║
+// ║  Ez automatikusan beinjektálja az összes függőségét!                    ║
+// ╚════════════════════════════════════════════════════════════════════════╝
 
-// ===== 8. UI INICIALIZÁLÁS =====
-ui.Initialize();
-
-// ===== 9. SZIMULÁCIÓ ÉS UI FRISSÍTÉS PÁRHUZAMOSAN =====
-
-// Szimuláció Task (párhuzamos futárok)
-var simulationTask = Task.Run(async () =>
-{
-    await deliveryService.RunSimulationAsync(cancellationTokenSource.Token);
-}, cancellationTokenSource.Token);
-
-// UI frissítő Task (500ms-enként frissít)
-var uiTask = Task.Run(async () =>
-{
-    while (!cancellationTokenSource.Token.IsCancellationRequested)
-    {
-        // Adatok lekérése a service-ből
-        var couriers = deliveryService.GetCouriers();
-        var orders = deliveryService.GetOrders();
-        var (totalDeliveries, totalDelays) = deliveryService.GetStatistics();
-
-        // Statisztikák objektum
-        var stats = new SimulationStats
-        {
-            TotalDeliveries = totalDeliveries,
-            TotalDelays = totalDelays
-        };
-
-        // UI frissítés (500ms-enként)
-        ui.Update(couriers, orders, stats);
-
-        // Várakozás
-        await Task.Delay(500, cancellationTokenSource.Token);
-    }
-}, cancellationTokenSource.Token);
-
-// ===== 10. VÁRUNK A BEFEJEZÉSRE =====
 try
 {
-    // Mindkét Task-ra várunk (szimuláció ÉS UI)
-    await Task.WhenAll(simulationTask, uiTask);
+    // Scope létrehozása (scoped szolgáltatásokhoz)
+    using var scope = host.Services.CreateScope();
+
+    // SimulationRunner lekérése DI-ből (ez fog mindent koordinálni)
+    var simulationRunner = scope.ServiceProvider.GetRequiredService<SimulationRunner>();
+
+    // Szimuláció futtatása (main logika)
+    await simulationRunner.RunAsync(cancellationTokenSource.Token);
 }
-catch (OperationCanceledException)
+catch (Exception ex)
 {
-    // Normális leállítás (CTRL+C)
+    // Globális exception handling
+    System.Console.ForegroundColor = ConsoleColor.Red;
+    System.Console.WriteLine($"\n❌ HIBA: {ex.Message}");
+    System.Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+    System.Console.ResetColor();
+    return 1; // Exit code 1 = hiba
 }
 
-// ===== 11. CLEANUP =====
-ui.Cleanup();
+// ╔════════════════════════════════════════════════════════════════════════╗
+// ║                      SIKERES BEFEJEZÉS                                   ║
+// ╚════════════════════════════════════════════════════════════════════════╝
 
-// ===== 12. VÉGSŐ STATISZTIKA =====
-Console.Clear();
-Console.ForegroundColor = ConsoleColor.Green;
-Console.WriteLine("\n╔═══════════════════════════════════════════════════════════════════════╗");
-Console.WriteLine("║                    ✅ SZIMULÁCIÓ BEFEJEZVE                            ║");
-Console.WriteLine("╚═══════════════════════════════════════════════════════════════════════╝\n");
-Console.ResetColor();
-
-var (finalDeliveries, finalDelays) = deliveryService.GetStatistics();
-
-Console.WriteLine("📊 VÉGSŐ STATISZTIKÁK:");
-Console.WriteLine("───────────────────────────────────────────────────────────────────────");
-Console.WriteLine($"Összes kézbesítés:  {finalDeliveries}");
-Console.WriteLine($"Késések száma:      {finalDelays}");
-
-if (finalDeliveries > 0)
-{
-    double delayRate = (double)finalDelays / finalDeliveries * 100;
-    Console.WriteLine($"Késési arány:       {delayRate:F1}%");
-}
-
-Console.WriteLine("\n👥 FUTÁR TELJESÍTMÉNYEK:");
-Console.WriteLine("───────────────────────────────────────────────────────────────────────");
-
-foreach (var courier in deliveryService.GetCouriers().OrderByDescending(c => c.TotalDeliveries))
-{
-    Console.WriteLine($"{courier.Name,-20}: {courier.TotalDeliveries,3} kézbesítés");
-}
-
-Console.WriteLine("\n🎉 Nyomj meg egy billentyűt a kilépéshez...");
-Console.ReadKey();
+return 0; // Exit code 0 = siker

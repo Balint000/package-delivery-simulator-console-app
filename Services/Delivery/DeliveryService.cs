@@ -1,7 +1,8 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
-using package_delivery_simulator.Infrastructure.Graph;
+using package_delivery_simulator.Services.Interfaces;
 
 namespace package_delivery_simulator.Services.Delivery;
 
@@ -14,8 +15,13 @@ namespace package_delivery_simulator.Services.Delivery;
 /// - Párhuzamos futár szimulációk indítása (Task-okkal)
 /// - Rendelés-futár hozzárendelés (greedy: legközelebbi futár)
 /// - Statisztikák gyűjtése
+/// - Késleltetés-értesítés (NotificationService-en keresztül)
+///
+/// ÚJ: Most már implementálja az IDeliveryService interface-t (DI-hez).
+/// ÚJ: Routing és Notification szolgáltatások DI-vel beinjektálva.
+/// ÚJ: ILogger használata Console.WriteLine helyett.
 /// </summary>
-public class DeliveryService
+public class DeliveryService : IDeliveryService
 {
     // Thread-safe gyűjtemények (több Task is hozzáférhet egyidejűleg)
     private readonly ConcurrentBag<Courier> _couriers;
@@ -24,19 +30,40 @@ public class DeliveryService
     // Gráf modell referencia (útvonal kereséshez)
     // FONTOS: A te gráf osztályodat használd itt!
     // Pl: CityGraph, GraphModel, stb.
-    private readonly object CityGraph;
+    private readonly object _cityGraph;
 
     // Statisztikák (Interlocked műveletekkel frissítve - thread-safe)
     private int _totalDeliveries = 0;
     private int _totalDelays = 0;
 
+    // ===== DEPENDENCY INJECTION SZOLGÁLTATÁSOK =====
+    // Ezeket a konstruktorban kapjuk meg, a Generic Host tölti be őket
+    private readonly IRouteOptimizationService _routeOptimization;
+    private readonly INotificationService _notificationService;
+    private readonly ILogger<DeliveryService> _logger;
+
     /// <summary>
-    /// Konstruktor - inicializálja a service-t a city graph-al.
+    /// Konstruktor - inicializálja a service-t DI-vel.
+    ///
+    /// FONTOS VÁLTOZÁS:
+    /// - Már nem csak a cityGraph-ot kapja, hanem routing, notification és logger-t is!
+    /// - Ezeket a Generic Host automatikusan beinjektálja.
     /// </summary>
     /// <param name="cityGraph">Város gráf modell (úthálózat)</param>
-    public DeliveryService(object cityGraph)
+    /// <param name="routeOptimization">Útvonal-optimalizáló szolgáltatás (greedy)</param>
+    /// <param name="notificationService">Értesítési szolgáltatás (késésekhez)</param>
+    /// <param name="logger">Logger példány (strukturált naplózás)</param>
+    public DeliveryService(
+        object cityGraph,
+        IRouteOptimizationService routeOptimization,
+        INotificationService notificationService,
+        ILogger<DeliveryService> logger)
     {
-        CityGraph = cityGraph ?? throw new ArgumentNullException(nameof(cityGraph));
+        _cityGraph = cityGraph ?? throw new ArgumentNullException(nameof(cityGraph));
+        _routeOptimization = routeOptimization ?? throw new ArgumentNullException(nameof(routeOptimization));
+        _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
         _couriers = new ConcurrentBag<Courier>();
         _orders = new ConcurrentBag<DeliveryOrder>();
     }
@@ -97,6 +124,9 @@ public class DeliveryService
     /// <param name="cancellationToken">Leállítási token (CTRL+C kezeléshez)</param>
     public async Task RunSimulationAsync(CancellationToken cancellationToken)
     {
+        // Naplózás: szimuláció indítása
+        _logger.LogInformation("🚀 Párhuzamos szimuláció indítása {CourierCount} futárral", _couriers.Count);
+
         // Futár Task-ok lista (minden futárnak külön Task)
         var courierTasks = new List<Task>();
 
@@ -123,7 +153,7 @@ public class DeliveryService
         catch (OperationCanceledException)
         {
             // Normális leállítás (CTRL+C)
-            Console.WriteLine("Szimuláció leállítva.");
+            _logger.LogInformation("⏹️  Szimuláció leállítva (felhasználó által)");
         }
     }
 
@@ -135,7 +165,7 @@ public class DeliveryService
     /// - Meg nem állítják (CancellationToken)
     ///
     /// Lépések:
-    /// 1. Keres egy szabad rendelést
+    /// 1. Keres egy szabad rendelést (GREEDY: legközelebbi)
     /// 2. Hozzárendeli magához
     /// 3. "Utazik" a cím felé (gráfon keresztül)
     /// 4. Kézbesít
@@ -148,11 +178,13 @@ public class DeliveryService
         courier.CurrentNodeId = 0;
         courier.Status = CourierStatus.Available;
 
+        _logger.LogInformation("Futár {CourierName} (ID: {CourierId}) elindult a raktárból", courier.Name, courier.Id);
+
         // Végtelen ciklus - folyamatosan keres új munkát
         while (!cancellationToken.IsCancellationRequested)
         {
-            // 1. KERESÜNK EGY SZABAD RENDELÉST
-            var availableOrder = FindAvailableOrder();
+            // 1. KERESÜNK EGY SZABAD RENDELÉST (GREEDY: legközelebbi)
+            var availableOrder = FindNearestAvailableOrder(courier);
 
             if (availableOrder != null)
             {
@@ -164,10 +196,17 @@ public class DeliveryService
                 // await DeliverOrderAsync(courier, availableOrder, cancellationToken);
 
                 // ÁTMENETI MEGOLDÁS: egyszerű várakozás
+                _logger.LogDebug(
+                    "Futár {CourierName} úton van: {OrderNumber} -> {Address}",
+                    courier.Name,
+                    availableOrder.OrderNumber,
+                    availableOrder.AddressText
+                );
+
                 await Task.Delay(5000, cancellationToken); // 5 másodperc "kézbesítés"
 
                 // 4. KÉZBESÍTÉS BEFEJEZÉS
-                CompleteDelivery(courier, availableOrder);
+                await CompleteDeliveryAsync(courier, availableOrder);
 
                 // 5. VISSZATÉRÉS A RAKTÁRBA (szintén TODO gráf)
                 // await ReturnToWarehouseAsync(courier, cancellationToken);
@@ -179,21 +218,33 @@ public class DeliveryService
                 await Task.Delay(1000, cancellationToken);
             }
         }
+
+        _logger.LogInformation("Futár {CourierName} befejezte a munkát", courier.Name);
     }
 
     /// <summary>
-    /// Keres egy szabad (Pending) rendelést.
-    /// Thread-safe: csak akkor adja vissza, ha még nincs futár hozzárendelve.
+    /// GREEDY: Legközelebbi szabad rendelés keresése a futár pozíciójához.
     ///
-    /// GREEDY algoritmus: legegyszerűbb, első találat.
-    /// Később: legközelebbi futár hozzárendelés (távolság alapján).
+    /// ÚJ LOGIKA:
+    /// - Már nem az első Pending order-t adja vissza!
+    /// - A RouteOptimizationService-t használja (dependency injection).
+    /// - Ez választja ki a legközelebbi rendelést távolság alapján.
     /// </summary>
-    private DeliveryOrder? FindAvailableOrder()
+    private DeliveryOrder? FindNearestAvailableOrder(Courier courier)
     {
-        // LINQ query - első pending order, ahol nincs futár
-        return _orders
+        // Szabad (Pending) rendelések, amelyekhez még nincs futár hozzárendelve
+        var availableOrders = _orders
             .Where(o => o.Status == OrderStatus.Pending && o.AssignedCourierId == null)
-            .FirstOrDefault();
+            .ToList();
+
+        // Ha nincs szabad rendelés, térjünk vissza null-lal
+        if (!availableOrders.Any())
+            return null;
+
+        // Routing szolgáltatás: legközelebbi rendelés kiválasztása
+        var nearestOrder = _routeOptimization.FindNearestOrder(courier, availableOrders);
+
+        return nearestOrder;
     }
 
     /// <summary>
@@ -215,13 +266,23 @@ public class DeliveryService
             // Rendelés frissítése
             order.AssignedCourierId = courier.Id;
             order.Status = OrderStatus.InTransit;
+
+            _logger.LogInformation(
+                "✅ Rendelés hozzárendelve: {OrderNumber} -> Futár: {CourierName}",
+                order.OrderNumber,
+                courier.Name
+            );
         }
     }
 
     /// <summary>
     /// Kézbesítés befejezése - rendelés leszállítva.
+    ///
+    /// ÚJ FUNKCIÓ:
+    /// - Ellenőrzi, hogy késett-e a kézbesítés.
+    /// - Ha igen, meghívja a NotificationService-t (értesítés).
     /// </summary>
-    private void CompleteDelivery(Courier courier, DeliveryOrder order)
+    private async Task CompleteDeliveryAsync(Courier courier, DeliveryOrder order)
     {
         // Rendelés frissítése
         order.Status = OrderStatus.Delivered;
@@ -235,10 +296,26 @@ public class DeliveryService
         // Statisztika frissítés (thread-safe Interlocked)
         Interlocked.Increment(ref _totalDeliveries);
 
-        // Késés ellenőrzés
+        // ===== KÉSÉS ELLENŐRZÉS ÉS ÉRTESÍTÉS =====
         if (order.DeliveredAt > order.ExpectedDeliveryTime)
         {
+            // Késés volt!
             Interlocked.Increment(ref _totalDelays);
+
+            // Késés mértéke percekben
+            var delayMinutes = (int)(order.DeliveredAt.Value - order.ExpectedDeliveryTime).TotalMinutes;
+
+            // Értesítés küldése (NotificationService)
+            await _notificationService.NotifyDelayAsync(order, delayMinutes);
+        }
+        else
+        {
+            // Időben érkezett
+            _logger.LogInformation(
+                "📦 Kézbesítve időben: {OrderNumber} - Futár: {CourierName}",
+                order.OrderNumber,
+                courier.Name
+            );
         }
     }
 }

@@ -2,8 +2,12 @@ namespace package_delivery_simulator.Presentation;
 
 using Microsoft.Extensions.Logging;
 using package_delivery_simulator.Domain.Interfaces;
+using package_delivery_simulator_console_app.Domain.Interfaces;
 using package_delivery_simulator.Presentation.Console.ViewsInterfaces;
 using package_delivery_simulator.Domain.Enums;
+
+
+using package_delivery_simulator.Domain.Entities;
 
 // ═══════════════════════════════════════════════════════════════════════
 // APPLICATION.CS - FŐ ALKALMAZÁS KOORDINÁTOR
@@ -49,6 +53,10 @@ public class Application
     // Logger (strukturált naplózás)
     private readonly ILogger<Application> _logger;
 
+    private readonly ICityGraphLoader _cityGraphLoader;
+    private readonly ICourierLoader _courierLoader;
+    private readonly IOrderLoader _orderLoader;
+
     // ───────────────────────────────────────────────────────────────────
     // KONSTRUKTOR - DEPENDENCY INJECTION
     // ───────────────────────────────────────────────────────────────────
@@ -73,6 +81,9 @@ public class Application
     //
     // NINCS SZÜKSÉG `new`-ra! A DI mindent megold!
     public Application(
+        ICityGraphLoader cityGraphLoader,
+        ICourierLoader courierLoader,
+        IOrderLoader orderLoader,
         IDeliveryService deliveryService,
         IMainMenuView mainMenu,
         ISimulationView simulationView,
@@ -81,6 +92,9 @@ public class Application
     {
         // Null ellenőrzés - biztonsági intézkedés
         // Ha valami nincs regisztrálva a DI-ben, itt elkapjuk
+        _cityGraphLoader = cityGraphLoader;
+        _courierLoader = courierLoader;
+        _orderLoader = orderLoader;
         _deliveryService = deliveryService ?? throw new ArgumentNullException(nameof(deliveryService));
         _mainMenu = mainMenu ?? throw new ArgumentNullException(nameof(mainMenu));
         _simulationView = simulationView ?? throw new ArgumentNullException(nameof(simulationView));
@@ -152,7 +166,7 @@ public class Application
         // Futárok és rendelések betöltése.
         // JELENLEGI ÁLLAPOT: Hardcoded adatok
         // KÉSŐBB: JSON fájlból vagy adatbázisból
-        LoadInitialData();
+        await LoadInitialDataAsync(cancellationToken);
 
         // ───────────────────────────────────────────────────────────────
         // LÉPÉS 5: SZIMULÁCIÓ ÉS UI FRISSÍTÉS PÁRHUZAMOSAN
@@ -201,9 +215,39 @@ public class Application
     // - Rendelések: orders.json fájlból
     // - Zónák: zones.json fájlból
     // - Gráf: city-graph.json fájlból
-    private void LoadInitialData()
+    private async Task LoadInitialDataAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Adatok betöltése");
+        _logger.LogInformation("Initial data loading started...");
+
+        // 1. Város gráf betöltése
+        var cityGraph = await _cityGraphLoader.LoadAsync(cancellationToken);
+        _deliveryService.SetCityGraph(cityGraph); // vagy konstruktorban kapja, attól függ, nálatok hogy van
+
+        // 2. Futárok betöltése JSON-ből
+        var couriers = await _courierLoader.LoadAsync(cancellationToken);
+        foreach (var courier in couriers)
+        {
+            _deliveryService.AddCourier(courier);
+        }
+
+        // 3. Rendelések betöltése JSON-ből
+        var orders = await _orderLoader.LoadAsync(cancellationToken);
+        foreach (var order in orders)
+        {
+            // Csak Pending rendeléseket addunk hozzá a szimulációhoz
+            if (order.Status == OrderStatus.Pending)
+            {
+                _deliveryService.AddOrder(order);
+            }
+        }
+
+        _logger.LogInformation(
+            "Initial data loaded. Couriers: {CourierCount}, Orders: {OrderCount}",
+            couriers.Count,
+            orders.Count);
+    }
+
+
 
         // TODO: JSON betöltés implementálás!
         // Példa:

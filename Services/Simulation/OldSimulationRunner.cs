@@ -17,19 +17,19 @@ using package_delivery_simulator.Domain.Interfaces;
 ///
 /// Felelősség: A Program.cs logikáját veszi át, hogy az csak egy vékony entry point legyen.
 /// </summary>
-public class SimulationRunner
+public class OldSimulationRunner
 {
     private readonly IDeliveryService _deliveryService;
     private readonly ILiveConsoleUI _liveUI;
-    private readonly ILogger<SimulationRunner> _logger;
+    private readonly ILogger<OldSimulationRunner> _logger;
 
     /// <summary>
     /// Konstruktor - DI-ből kapja a szolgáltatásokat.
     /// </summary>
-    public SimulationRunner(
+    public OldSimulationRunner(
         IDeliveryService deliveryService,
         ILiveConsoleUI liveUI,
-        ILogger<SimulationRunner> logger)
+        ILogger<OldSimulationRunner> logger)
     {
         _deliveryService = deliveryService;
         _liveUI = liveUI;

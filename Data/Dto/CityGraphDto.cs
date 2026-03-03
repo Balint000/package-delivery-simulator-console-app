@@ -1,70 +1,52 @@
-namespace package_delivery_simulator.Data.Dto
+namespace package_delivery_simulator_console_app.Data.Dto;
+
+using System.Collections.Generic;
+
+// Gyökér objektum a city-graph.json-hoz
+public sealed class CityGraphDto
 {
-    using System.Text.Json.Serialization;
+    // Város neve (debug/kiíráshoz)
+    public string CityName { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Data Transfer Object a város gráf JSON betöltéséhez.
-    /// </summary>
-    public class CityGraphDto
-    {
-        [JsonPropertyName("cityName")]
-        public string CityName { get; set; }
+    // Szöveges leírás (debug)
+    public string Description { get; set; } = string.Empty;
 
-        [JsonPropertyName("description")]
-        public string Description { get; set; }
+    // Csúcsok listája
+    public List<CityGraphNodeJson> Nodes { get; set; } = new();
 
-        [JsonPropertyName("nodes")]
-        public List<NodeDto> Nodes { get; set; }
+    // Élek listája
+    public List<CityGraphEdgeJson> Edges { get; set; } = new();
+}
 
-        [JsonPropertyName("edges")]
-        public List<EdgeDto> Edges { get; set; }
-    }
+// Egy csúcs a JSON-ben
+public sealed class CityGraphNodeJson
+{
+    public int Id { get; set; }
 
-    /// <summary>
-    /// Csúcs JSON reprezentáció.
-    /// </summary>
-    public class NodeDto
-    {
-        [JsonPropertyName("id")]
-        public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
 
-        [JsonPropertyName("name")]
-        public string Name { get; set; }
+    // "Warehouse", "DeliveryPoint", "Intersection" – ezt NodeType enumra kell map-pelni
+    public string Type { get; set; } = string.Empty;
 
-        [JsonPropertyName("type")]
-        public string Type { get; set; }  // "Warehouse", "DeliveryPoint", "Intersection"
+    public CityGraphLocationJson Location { get; set; } = new();
 
-        [JsonPropertyName("location")]
-        public LocationDto Location { get; set; }
+    public int? ZoneId { get; set; }
+}
 
-        [JsonPropertyName("zoneId")]
-        public int? ZoneId { get; set; }
-    }
+// Koordináták a JSON-ben
+public sealed class CityGraphLocationJson
+{
+    public double X { get; set; }
 
-    /// <summary>
-    /// Él JSON reprezentáció.
-    /// </summary>
-    public class EdgeDto
-    {
-        [JsonPropertyName("from")]
-        public int From { get; set; }
+    public double Y { get; set; }
+}
 
-        [JsonPropertyName("to")]
-        public int To { get; set; }
+// Egy él a JSON-ben
+public sealed class CityGraphEdgeJson
+{
+    public int From { get; set; }
 
-        [JsonPropertyName("idealTimeMinutes")]
-        public int IdealTimeMinutes { get; set; }
-    }
+    public int To { get; set; }
 
-    /// <summary>
-    /// Lokáció JSON reprezentáció.
-    /// </summary>
-    public class LocationDto
-    {
-        [JsonPropertyName("x")]
-        public double X { get; set; }
-
-        [JsonPropertyName("y")]
-        public double Y { get; set; }
-    }
+    public int IdealTimeMinutes { get; set; }
 }

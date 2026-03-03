@@ -2,14 +2,18 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using package_delivery_simulator.Domain.Interfaces;
+using package_delivery_simulator_console_app.Domain.Interfaces;
 using package_delivery_simulator.Infrastructure.Configuration;
 using package_delivery_simulator.Infrastructure.Graph;
+using package_delivery_simulator_console_app.Infrastructure.Configuration;
+using package_delivery_simulator.Infrastructure.Loaders;
 using package_delivery_simulator.Presentation;
 using package_delivery_simulator.Presentation.Console.Views;
 using package_delivery_simulator.Presentation.Console.ViewsInterfaces;
 using package_delivery_simulator.Services.Delivery;
 using package_delivery_simulator.Services.Notification;
 using package_delivery_simulator.Services.Routing;
+
 
 // ═══════════════════════════════════════════════════════════════════════
 // PROGRAM.CS - AZ ALKALMAZÁS BELÉPÉSI PONTJA
@@ -159,6 +163,13 @@ var host = Host.CreateDefaultBuilder(args)
         // FONTOS: Ez NEM interface-szel van regisztrálva, mert
         // ez a legfelső szintű osztály, amit közvetlenül használunk.
         services.AddSingleton<Application>();
+
+        // ...
+        services.Configure<DataOptions>(context.Configuration.GetSection(DataOptions.SectionName));
+
+        services.AddSingleton<ICityGraphLoader, CityGraphLoader>();
+        services.AddSingleton<ICourierLoader, CourierLoader>();
+        services.AddSingleton<IOrderLoader, OrderLoader>();
     })
 
     // ───────────────────────────────────────────────────────────────────

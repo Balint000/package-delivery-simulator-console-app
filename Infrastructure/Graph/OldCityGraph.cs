@@ -1,4 +1,4 @@
-namespace package_delivery_simulator.Infrastructure
+namespace package_delivery_simulator.Infrastructure.Graph
 {
     using package_delivery_simulator.Domain.Entities;
     using package_delivery_simulator.Domain.ValueObjects;
@@ -23,7 +23,7 @@ namespace package_delivery_simulator.Infrastructure
     ///   1 [5, null, 3]     → 1-ből 0-ba 5 perc (irányítatlan!), 2-be 3 perc
     ///   2 [null, 3, null]  → 2-ből 1-be 3 perc
     /// </summary>
-    public class CityGraph
+    public class OldCityGraph
     {
         // ====== PRIVATE MEZŐK ======
 
@@ -77,7 +77,7 @@ namespace package_delivery_simulator.Infrastructure
         /// Új város gráf létrehozása.
         /// </summary>
         /// <param name="nodeCount">Hány csúcsot szeretnénk maximum? (pl. 10, 20, 50)</param>
-        public CityGraph(int nodeCount)
+        public OldCityGraph(int nodeCount)
         {
             _nodeCount = nodeCount;
             _nodes = new List<GraphNode>(nodeCount); // Lista a csúcsoknak

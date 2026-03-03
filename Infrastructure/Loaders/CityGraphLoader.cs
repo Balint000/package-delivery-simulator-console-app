@@ -1,11 +1,11 @@
-namespace package_delivery_simulator.Infrastructure.Loaders
+namespace package_delivery_simulator_console_app.Infrastructure.Loaders
 {
     using System.Text.Json;
     using package_delivery_simulator.Data.Dto;
     using package_delivery_simulator.Domain.Entities;
     using package_delivery_simulator.Domain.Enums;
     using package_delivery_simulator.Domain.ValueObjects;
-    using package_delivery_simulator.Infrastructure.Graph;
+    using package_delivery_simulator_console_app.Infrastructure.Graph;
 
     /// <summary>
     /// Város gráf betöltése JSON fájlból.
@@ -17,7 +17,7 @@ namespace package_delivery_simulator.Infrastructure.Loaders
         /// </summary>
         /// <param name="jsonFilePath">JSON fájl elérési útja</param>
         /// <returns>Betöltött CityGraph</returns>
-        public static CityGraph LoadFromJson(string jsonFilePath)
+        public static ICityGraph LoadFromJson(string jsonFilePath)
         {
             Console.WriteLine($"📂 Loading city graph from: {jsonFilePath}");
 

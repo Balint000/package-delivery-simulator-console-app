@@ -1,4 +1,4 @@
-namespace package_delivery_simulator.Infrastructure.Graph
+namespace package_delivery_simulator_console_app.Infrastructure.Graph
 {
     using package_delivery_simulator.Domain.Entities;
     using package_delivery_simulator.Domain.ValueObjects;
@@ -7,7 +7,7 @@ namespace package_delivery_simulator.Infrastructure.Graph
     /// CityGraph alapvető funkciók: konstruktor, csúcs/él kezelés.
     /// PARTIAL CLASS - több fájlra bontva az átláthatóság érdekében.
     /// </summary>
-    public partial class CityGraph
+    public partial class CityGraph : ICityGraph
     {
         // ====== PRIVATE MEZŐK ======
 
@@ -110,7 +110,7 @@ namespace package_delivery_simulator.Infrastructure.Graph
         /// <summary>
         /// Csúcs lekérdezése ID alapján.
         /// </summary>
-        public GraphNode GetNode(int nodeId)
+        public GraphNode? GetNode(int nodeId)
         {
             if (nodeId < 0 || nodeId >= _nodes.Count)
                 return null;
@@ -121,7 +121,7 @@ namespace package_delivery_simulator.Infrastructure.Graph
         /// <summary>
         /// Csúcs keresése név alapján (case-insensitive).
         /// </summary>
-        public GraphNode FindNodeByName(string name)
+        public GraphNode? FindNodeByName(string name)
         {
             return _nodes.FirstOrDefault(n =>
                 n.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
@@ -156,7 +156,7 @@ namespace package_delivery_simulator.Infrastructure.Graph
         /// <summary>
         /// Él lekérdezése két csúcs között.
         /// </summary>
-        public EdgeWeight GetEdge(int nodeId1, int nodeId2)
+        public EdgeWeight? GetEdge(int nodeId1, int nodeId2)
         {
             if (nodeId1 < 0 || nodeId1 >= _nodes.Count ||
                 nodeId2 < 0 || nodeId2 >= _nodes.Count)

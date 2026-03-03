@@ -4,8 +4,8 @@ using System.Linq;
 using System.Threading;
 using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
-using package_delivery_simulator.Infrastructure.Graph;
-using package_delivery_simulator.Infrastructure.Loaders;
+using package_delivery_simulator_console_app.Infrastructure.Graph;
+using package_delivery_simulator_console_app.Infrastructure.Loaders;
 
 class Program
 {
@@ -17,7 +17,7 @@ class Program
 
         // ===== 1. VÁROS BETÖLTÉSE JSON-BŐL =====
         string jsonPath = Path.Combine("Data", "city-graph.json");
-        CityGraph cityGraph;
+        ICityGraph cityGraph;
 
         try
         {

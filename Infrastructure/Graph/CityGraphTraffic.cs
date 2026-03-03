@@ -1,10 +1,10 @@
-namespace package_delivery_simulator.Infrastructure.Graph
+namespace package_delivery_simulator_console_app.Infrastructure.Graph
 {
     /// <summary>
     /// CityGraph forgalom szimulációs funkciók.
     /// PARTIAL CLASS folytatása.
     /// </summary>
-    public partial class CityGraph
+    public partial class CityGraph : ICityGraph
     {
         /// <summary>
         /// Véletlenszerű forgalom frissítése az összes élen.

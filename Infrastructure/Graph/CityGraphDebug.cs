@@ -1,10 +1,10 @@
-namespace package_delivery_simulator.Infrastructure.Graph
+namespace package_delivery_simulator_console_app.Infrastructure.Graph
 {
     /// <summary>
     /// CityGraph debug és kiíratási funkciók.
     /// PARTIAL CLASS folytatása.
     /// </summary>
-    public partial class CityGraph
+    public partial class CityGraph : ICityGraph
     {
         /// <summary>
         /// Teljes gráf kiírása a konzolra.

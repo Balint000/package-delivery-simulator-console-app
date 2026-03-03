@@ -1,8 +1,9 @@
-namespace package_delivery_simulator.Infrastructure
+namespace package_delivery_simulator_console_app.Infrastructure
 {
     using package_delivery_simulator.Domain.Entities;
     using package_delivery_simulator.Domain.Enums;
     using package_delivery_simulator.Domain.ValueObjects;
+    using package_delivery_simulator_console_app.Infrastructure.Graph;
 
     /// <summary>
     /// Segédosztály város gráfok építéséhez.
@@ -33,12 +34,12 @@ namespace package_delivery_simulator.Infrastructure
         /// [6] Suburb            - Kereszteződés
         /// [7] Industrial        - Kereszteződés
         /// </summary>
-        public static CityGraph BuildExampleCity()
+        public static ICityGraph BuildExampleCity()
         {
             Console.WriteLine("🏗️  Building Example City...\n");
 
             // ===== 1. GRÁF LÉTREHOZÁSA (8 csúcs) =====
-            var graph = new CityGraph(nodeCount: 8);
+            var graph = new CityGraph(8);
 
             // ===== 2. CSÚCSOK HOZZÁADÁSA =====
 
@@ -147,9 +148,9 @@ namespace package_delivery_simulator.Infrastructure
         /// <summary>
         /// Kisebb példa város teszteléshez (4 csúcs).
         /// </summary>
-        public static CityGraph BuildSmallCity()
+        public static ICityGraph BuildSmallCity()
         {
-            var graph = new CityGraph(nodeCount: 4);
+            var graph = new CityGraph(4);
 
             graph.AddNode(new GraphNode(0, "Warehouse", NodeType.Warehouse, new Location(0, 0)));
             graph.AddNode(new GraphNode(1, "House A", NodeType.DeliveryPoint, new Location(3, 0)));

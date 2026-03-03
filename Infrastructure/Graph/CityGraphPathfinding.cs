@@ -1,10 +1,10 @@
-namespace package_delivery_simulator.Infrastructure.Graph
+namespace package_delivery_simulator_console_app.Infrastructure.Graph
 {
     /// <summary>
     /// CityGraph útvonalkeresési funkciók (Dijkstra).
     /// PARTIAL CLASS folytatása.
     /// </summary>
-    public partial class CityGraph
+    public partial class CityGraph : ICityGraph
     {
         /// <summary>
         /// Legrövidebb út keresése Dijkstra algoritmussal.

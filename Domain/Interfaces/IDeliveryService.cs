@@ -1,4 +1,4 @@
-namespace package_delivery_simulator.Services.Interfaces;
+namespace package_delivery_simulator.Domain.Interfaces;
 
 using package_delivery_simulator.Domain.Entities;
 

@@ -1,6 +1,6 @@
 using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
-using package_delivery_simulator.Services.Interfaces;
+using package_delivery_simulator.Domain.Interfaces;
 using System.Text;
 
 namespace package_delivery_simulator.Presentation.Console;

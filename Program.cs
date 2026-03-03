@@ -25,6 +25,7 @@ System.Console.OutputEncoding = System.Text.Encoding.UTF8;
 // ║  Az üzleti logika a SimulationRunner szolgáltatásban van.               ║
 // ╚════════════════════════════════════════════════════════════════════════╝
 
+
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>
     {

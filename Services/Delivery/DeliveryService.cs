@@ -2,7 +2,8 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
-using package_delivery_simulator.Services.Interfaces;
+using package_delivery_simulator.Domain.Interfaces;
+using package_delivery_simulator.Infrastructure.Graph;
 
 namespace package_delivery_simulator.Services.Delivery;
 
@@ -23,14 +24,10 @@ namespace package_delivery_simulator.Services.Delivery;
 /// </summary>
 public class DeliveryService : IDeliveryService
 {
+    private readonly CityGraph _cityGraph;
     // Thread-safe gyűjtemények (több Task is hozzáférhet egyidejűleg)
     private readonly ConcurrentBag<Courier> _couriers;
     private readonly ConcurrentBag<DeliveryOrder> _orders;
-
-    // Gráf modell referencia (útvonal kereséshez)
-    // FONTOS: A te gráf osztályodat használd itt!
-    // Pl: CityGraph, GraphModel, stb.
-    private readonly object _cityGraph;
 
     // Statisztikák (Interlocked műveletekkel frissítve - thread-safe)
     private int _totalDeliveries = 0;
@@ -54,7 +51,7 @@ public class DeliveryService : IDeliveryService
     /// <param name="notificationService">Értesítési szolgáltatás (késésekhez)</param>
     /// <param name="logger">Logger példány (strukturált naplózás)</param>
     public DeliveryService(
-        object cityGraph,
+        CityGraph cityGraph,
         IRouteOptimizationService routeOptimization,
         INotificationService notificationService,
         ILogger<DeliveryService> logger)

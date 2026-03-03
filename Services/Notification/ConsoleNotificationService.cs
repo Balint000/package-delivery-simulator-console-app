@@ -2,7 +2,7 @@ namespace package_delivery_simulator.Services.Notification;
 
 using Microsoft.Extensions.Logging;
 using package_delivery_simulator.Domain.Entities;
-using package_delivery_simulator.Services.Interfaces;
+using package_delivery_simulator.Domain.Interfaces;
 
 /// <summary>
 /// Konzol-alapú értesítési szolgáltatás.

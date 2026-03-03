@@ -1,6 +1,7 @@
-using package_delivery_simulator.Presentation.Console.ViewsInterfaces;
-
 namespace package_delivery_simulator.Presentation.Console.Views;
+
+using package_delivery_simulator.Domain.Enums;
+using package_delivery_simulator.Presentation.Console.ViewsInterfaces;
 
 public class MainMenuView : IMainMenuView
 {

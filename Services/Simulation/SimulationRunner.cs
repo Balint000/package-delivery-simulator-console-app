@@ -5,7 +5,7 @@ using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
 using package_delivery_simulator.Domain.ValueObjects;
 using package_delivery_simulator.Presentation.Console;
-using package_delivery_simulator.Services.Interfaces;
+using package_delivery_simulator.Domain.Interfaces;
 
 /// <summary>
 /// Szimuláció-futtató szolgáltatás.

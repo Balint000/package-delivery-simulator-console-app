@@ -1,7 +1,7 @@
 namespace package_delivery_simulator.Services.Routing;
 
 using package_delivery_simulator.Domain.Entities;
-using package_delivery_simulator.Services.Interfaces;
+using package_delivery_simulator.Domain.Interfaces;
 
 /// <summary>
 /// GREEDY (nearest neighbor) útvonal-optimalizáló szolgáltatás.

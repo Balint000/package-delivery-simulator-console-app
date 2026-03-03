@@ -69,4 +69,55 @@ public class DeliveryOrder
     /// Null while no courier is assigned.
     /// </summary>
     public int? AssignedCourierId { get; set; }
+
+    // ===========================
+    // ====== ÚJ PROPERTY-K ======
+    // ===========================
+
+    /// <summary>
+    /// Legközelebbi warehouse node ID, ahonnan fel kell venni.
+    /// Számítjuk a rendelés létrehozásakor.
+    /// </summary>
+    public int? NearestWarehouseNodeId { get; set; }
+
+    /// <summary>
+    /// Ideális kézbesítési idő (warehouse-tól a címig, forgalom nélkül).
+    /// Késés detektáláshoz használjuk.
+    /// </summary>
+    public int? IdealDeliveryTimeMinutes { get; set; }
+
+    /// <summary>
+    /// Tényleges kézbesítési idő (warehouse-tól a címig).
+    /// </summary>
+    public int? ActualDeliveryTimeMinutes { get; set; }
+
+    /// <summary>
+    /// Késés volt-e (actualTime > idealTime * 1.2).
+    /// </summary>
+    public bool WasDelayed { get; set; } = false;
+
+    /// <summary>
+    /// Ügyfél értesítve lett-e a késésről.
+    /// </summary>
+    public bool CustomerNotifiedOfDelay { get; set; } = false;
+
+    // ====== HELPER PROPERTY-K ======
+
+    /// <summary>
+    /// Hozzá van-e rendelve futárhoz?
+    /// </summary>
+    public bool IsAssigned => AssignedCourierId.HasValue;
+
+    /// <summary>
+    /// Kézbesítve lett-e?
+    /// </summary>
+    public bool IsDelivered => Status == OrderStatus.Delivered;
+
+    /// <summary>
+    /// Késés ideje percekben (ha volt késés).
+    /// </summary>
+    public int DelayMinutes =>
+        WasDelayed && IdealDeliveryTimeMinutes.HasValue && ActualDeliveryTimeMinutes.HasValue
+            ? ActualDeliveryTimeMinutes.Value - IdealDeliveryTimeMinutes.Value
+            : 0;
 }

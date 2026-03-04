@@ -1,10 +1,10 @@
 {
   "cityName": "Demo City",
-  "description": "Egyszerű példa város 8 csúccsal csomagkézbesítés szimulációhoz",
+  "description": "Példa város 11 csúccsal — zónánként 1 warehouse, csomagkézbesítés szimulációhoz",
   "nodes": [
     {
       "id": 0,
-      "name": "Central Warehouse",
+      "name": "Zone 1 Warehouse",
       "type": "Warehouse",
       "location": { "x": 0.0, "y": 0.0 },
       "zoneId": 1
@@ -57,6 +57,27 @@
       "type": "Intersection",
       "location": { "x": 3.0, "y": -2.0 },
       "zoneId": 3
+    },
+    {
+      "id": 8,
+      "name": "Zone 2 Warehouse",
+      "type": "Warehouse",
+      "location": { "x": 5.0, "y": 3.0 },
+      "zoneId": 2
+    },
+    {
+      "id": 9,
+      "name": "Zone 3 Warehouse",
+      "type": "Warehouse",
+      "location": { "x": 2.0, "y": -5.0 },
+      "zoneId": 3
+    },
+    {
+      "id": 10,
+      "name": "Zone 4 Warehouse",
+      "type": "Warehouse",
+      "location": { "x": -5.0, "y": -3.0 },
+      "zoneId": 4
     }
   ],
   "edges": [
@@ -69,6 +90,12 @@
     { "from": 7, "to": 3, "idealTimeMinutes": 5 },
     { "from": 6, "to": 4, "idealTimeMinutes": 6 },
     { "from": 6, "to": 1, "idealTimeMinutes": 5 },
-    { "from": 4, "to": 3, "idealTimeMinutes": 9 }
+    { "from": 4, "to": 3, "idealTimeMinutes": 9 },
+    { "from": 8, "to": 5, "idealTimeMinutes": 4 },
+    { "from": 8, "to": 2, "idealTimeMinutes": 3 },
+    { "from": 9, "to": 7, "idealTimeMinutes": 3 },
+    { "from": 9, "to": 3, "idealTimeMinutes": 4 },
+    { "from": 10, "to": 6, "idealTimeMinutes": 4 },
+    { "from": 10, "to": 4, "idealTimeMinutes": 3 }
   ]
 }

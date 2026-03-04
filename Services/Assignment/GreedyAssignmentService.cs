@@ -1,22 +1,11 @@
 // ============================================================
-// GreedyAssignmentService.cs
+// GreedyAssignmentService.cs — FRISSÍTVE
 // ============================================================
-// Felelőssége: Rendelések hozzárendelése futárokhoz.
-//
-// GREEDY (mohó) ALGORITMUS:
-// Nem keres globálisan optimális megoldást.
-// Minden rendelésnél egyszerűen a LEGJOBB PILLANATNYI
-// döntést hozza: melyik szabad futár van a legközelebb?
-//
-// ELŐNYE:  Gyors, egyszerű, könnyen érthető
-// HÁTRÁNYA: Nem mindig az összesség szempontjából legjobb
-//           (pl. lehet, hogy ha nem a legközelebbit küldjük,
-//            a többi rendelés összesítve gyorsabb lenne)
-//
-// MIÉRT IDE KERÜL (Services/Assignment)?
-// Ez üzleti logika (business logic) — egy döntési algoritmus.
-// Nem infrastruktúra (nem fájlt olvas), nem prezentáció
-// (nem ír a képernyőre). A Services rétegbe tartozik.
+// Új szabályok:
+//   1. ZÓNA-SZŰRÉS: futár csak a saját zónájában lévő rendelést kaphat
+//   2. KAPACITÁS:   futár max MaxCapacity (alapban 3) rendelést vihet
+//   3. BUSY + VAN HELY: Busy futár is kaphat új rendelést, ha van szabad helye
+//   4. AssignNextBatch: warehouse visszatéréskor tölt fel max MaxCapacity-ig
 // ============================================================
 
 namespace package_delivery_simulator_console_app.Services.Assignment;
@@ -27,34 +16,11 @@ using package_delivery_simulator.Domain.Enums;
 using package_delivery_simulator.Domain.ValueObjects;
 using package_delivery_simulator_console_app.Infrastructure.Graph;
 
-/// <summary>
-/// Greedy (mohó) rendelés-hozzárendelési algoritmus.
-///
-/// Minden rendeléshez megkeresi a legközelebbi szabad futárt,
-/// és hozzárendeli a rendelést.
-/// </summary>
 public class GreedyAssignmentService
 {
-    // ====== FÜGGŐSÉGEK ======
-
-    /// <summary>
-    /// A városgráf — Dijkstra algoritmushoz kell,
-    /// hogy valódi gráf-távolságot mérjünk, nem Euklideszi távolságot.
-    /// </summary>
     private readonly ICityGraph _cityGraph;
-
-    /// <summary>
-    /// Logger a naplózáshoz.
-    /// </summary>
     private readonly ILogger<GreedyAssignmentService> _logger;
 
-    // ====== KONSTRUKTOR ======
-
-    /// <summary>
-    /// GreedyAssignmentService létrehozása.
-    /// </summary>
-    /// <param name="cityGraph">Városgráf (DI-ból jön)</param>
-    /// <param name="logger">Logger (DI-ból jön)</param>
     public GreedyAssignmentService(
         ICityGraph cityGraph,
         ILogger<GreedyAssignmentService> logger)
@@ -63,78 +29,73 @@ public class GreedyAssignmentService
         _logger = logger;
     }
 
-    // ====== FŐ METÓDUS ======
+    // ====================================================
+    // AssignToNearest — egy rendelés hozzárendelése
+    // ====================================================
 
     /// <summary>
-    /// Egy rendelés hozzárendelése a legközelebbi elérhető futárhoz.
+    /// Egy rendelés hozzárendelése a legalkalmasabb futárhoz.
     ///
-    /// LÉPÉSEK:
-    ///   1. Kiszűri az Available státuszú futárokat
-    ///   2. Minden futárhoz Dijkstrával kiszámolja az utat a rendelésig
-    ///   3. A legrövidebb úttal rendelkező futárt választja
-    ///   4. Frissíti a rendelés és a futár státuszát
+    /// SZŰRÉSI FELTÉTELEK (mind teljesüljön):
+    ///   1. Status != OffDuty
+    ///   2. HasCapacity (AssignedOrderIds.Count < MaxCapacity)
+    ///   3. CanWorkInZone(order.ZoneId) — futár zónalistájában szerepel
     ///
-    /// VISSZATÉRÉSI ÉRTÉK:
-    ///   - A kiválasztott futár, ha sikerült hozzárendelni
-    ///   - null, ha nincs elérhető futár
+    /// KIVÁLASZTÁS: Dijkstra alapján a legközelebbi alkalmas futár.
+    /// Ha ugyanolyan távolságban van több is → az első a listában nyer.
     /// </summary>
-    /// <param name="order">A hozzárendelendő rendelés</param>
-    /// <param name="availableCouriers">Az összes futár listája</param>
-    /// <returns>A kiválasztott futár vagy null</returns>
     public Courier? AssignToNearest(
         DeliveryOrder order,
-        List<Courier> availableCouriers)
+        List<Courier> allCouriers)
     {
         _logger.LogInformation(
-            "Greedy hozzárendelés: {OrderNumber} ({CustomerName})...",
-            order.OrderNumber, order.CustomerName);
+            "Greedy hozzárendelés: {OrderNumber} ({CustomerName}, Zóna {ZoneId})...",
+            order.OrderNumber, order.CustomerName, order.ZoneId);
 
-        // Csak a szabad futárokat vesszük figyelembe
-        var freeCouriers = availableCouriers
-            .Where(c => c.Status == CourierStatus.Available)
+        // Szűrés: ki kaphat rendelést?
+        var eligibleCouriers = allCouriers
+            .Where(c =>
+                c.Status != CourierStatus.OffDuty
+                && c.HasCapacity
+                && c.CanWorkInZone(order.ZoneId))
             .ToList();
 
-        if (freeCouriers.Count == 0)
+        if (eligibleCouriers.Count == 0)
         {
             _logger.LogWarning(
-                "Nincs szabad futár a(z) {OrderNumber} rendeléshez!",
-                order.OrderNumber);
+                "Nincs alkalmas futár a(z) {OrderNumber} rendeléshez! " +
+                "(Zóna: {ZoneId}, {Total} futárból egyik sem felel meg)",
+                order.OrderNumber, order.ZoneId, allCouriers.Count);
             return null;
         }
 
         _logger.LogDebug(
-            "{Count} szabad futár közül keresünk legközelebbit...",
-            freeCouriers.Count);
+            "{Count} alkalmas futár a Zóna {ZoneId} rendeléshez",
+            eligibleCouriers.Count, order.ZoneId);
 
-        // A rendelés célcsúcsát meghatározzuk: melyik gráf-node a legközelebb
-        // a rendelés koordinátájához?
+        // Legközelebbi keresése Dijkstrával
         int orderNodeId = FindNearestNodeId(order.AddressLocation);
 
-        _logger.LogDebug(
-            "Rendelés célpontja: Node {Id} ({Name})",
-            orderNodeId,
-            _cityGraph.GetNode(orderNodeId)?.Name ?? "?");
-
-        // ---- Legközelebbi futár keresése ----
         Courier? bestCourier = null;
-        int shortestTime = int.MaxValue; // "végtelen" — még nem találtunk senkit
+        int shortestTime = int.MaxValue;
 
-        foreach (var courier in freeCouriers)
+        foreach (var courier in eligibleCouriers)
         {
-            // A futár koordinátáját is node-ra képezzük
             int courierNodeId = FindNearestNodeId(courier.CurrentLocation);
+            var (_, travelTime) = _cityGraph.FindShortestPath(courierNodeId, orderNodeId);
 
-            // Dijkstra: mennyi idő kell a futárnak a rendelés helyszínéig?
-            // A visszatérési érték egy Tuple: (útvonal lista, összes idő)
-            // Az "_" azt jelenti: "az útvonalra most nem vagyunk kíváncsiak"
-            var (_, travelTime) = _cityGraph.FindShortestPath(
-                courierNodeId, orderNodeId);
+            if (travelTime == int.MaxValue)
+            {
+                _logger.LogDebug("  └ {Name}: nem elérhető (nincs útvonal)", courier.Name);
+                continue;
+            }
 
             _logger.LogDebug(
-                "  └ {Name}: Node {NodeId} → {OrderNodeId} = {Time} perc",
-                courier.Name, courierNodeId, orderNodeId, travelTime);
+                "  └ {Name} [{Status}, {Assigned}/{Max}]: {Time} perc",
+                courier.Name, courier.Status,
+                courier.AssignedOrderIds.Count, courier.MaxCapacity,
+                travelTime);
 
-            // Ha ez a futár közelebb van az eddig legjobbhoz, frissítünk
             if (travelTime < shortestTime)
             {
                 shortestTime = travelTime;
@@ -142,42 +103,40 @@ public class GreedyAssignmentService
             }
         }
 
-        // ---- Hozzárendelés elvégzése ----
+        // Hozzárendelés elvégzése
         if (bestCourier != null)
         {
-            // Rendelés státusz: Pending → Assigned
             order.Status = OrderStatus.Assigned;
             order.AssignedCourierId = bestCourier.Id;
-
-            // Futár státusz: Available → Busy
-            bestCourier.Status = CourierStatus.Busy;
             bestCourier.AssignedOrderIds.Add(order.Id);
+
+            // Available → Busy (ha Busy volt és van helye, státusz marad Busy)
+            if (bestCourier.Status == CourierStatus.Available)
+                bestCourier.Status = CourierStatus.Busy;
 
             _logger.LogInformation(
                 "✅ Hozzárendelve: {OrderNumber} → {CourierName} " +
-                "(becsült menetidő: {Time} perc)",
-                order.OrderNumber, bestCourier.Name, shortestTime);
+                "(Zóna {ZoneId}, ~{Time} perc, kapacitás: {Assigned}/{Max})",
+                order.OrderNumber, bestCourier.Name,
+                order.ZoneId, shortestTime,
+                bestCourier.AssignedOrderIds.Count, bestCourier.MaxCapacity);
         }
 
         return bestCourier;
     }
 
+    // ====================================================
+    // AssignAll — tömeges hozzárendelés
+    // ====================================================
+
     /// <summary>
-    /// Több rendelés tömeges hozzárendelése egyszerre.
+    /// Több rendelés tömeges hozzárendelése.
     ///
-    /// FONTOS: Minden rendelésnél újra megvizsgálja a futárokat,
-    /// mert az előző hozzárendelés után a futár már Busy lehet!
-    ///
-    /// Példa: Ha 3 rendelés van és 2 futár:
-    ///   - 1. rendelés → Futár A (legközelebbi) → A most Busy
-    ///   - 2. rendelés → Futár B (A már nem szabad) → B most Busy
-    ///   - 3. rendelés → null (nincs szabad futár)
+    /// MOST MÁR: egy futár MaxCapacity-ig több rendelést is kaphat!
+    /// Például MaxCapacity=3, 5 futár, 15 rendelés esetén:
+    ///   - Körönként mindenki kap 1-et amíg van szabad hely
+    ///   - Összesen 15 rendelés kiosztható (5 × 3 = 15)
     /// </summary>
-    /// <param name="orders">Hozzárendelendő rendelések</param>
-    /// <param name="couriers">Az összes futár</param>
-    /// <returns>
-    /// Dictionary: rendelés ID → hozzárendelt futár (vagy null ha nem sikerült)
-    /// </returns>
     public Dictionary<int, Courier?> AssignAll(
         List<DeliveryOrder> orders,
         List<Courier> couriers)
@@ -186,12 +145,10 @@ public class GreedyAssignmentService
             "Tömeges hozzárendelés: {OrderCount} rendelés, {CourierCount} futár",
             orders.Count, couriers.Count);
 
-        // Az eredményeket egy szótárban tároljuk: OrderId → Futár
         var assignments = new Dictionary<int, Courier?>();
 
         foreach (var order in orders)
         {
-            // Csak a Pending rendeléseket rendeljük hozzá
             if (order.Status != OrderStatus.Pending)
             {
                 _logger.LogDebug(
@@ -200,12 +157,10 @@ public class GreedyAssignmentService
                 continue;
             }
 
-            // Greedy hozzárendelés egyenként
             var assignedCourier = AssignToNearest(order, couriers);
             assignments[order.Id] = assignedCourier;
         }
 
-        // Összesítő log
         int successCount = assignments.Values.Count(c => c != null);
         int failCount = assignments.Values.Count(c => c == null);
 
@@ -216,19 +171,91 @@ public class GreedyAssignmentService
         return assignments;
     }
 
-    // ====== PRIVÁT SEGÉDMETÓDUS ======
+    // ====================================================
+    // AssignNextBatch — warehouse visszatérés utáni feltöltés
+    // ====================================================
 
     /// <summary>
-    /// A gráfban megkeresi a koordinátához legközelebbi csúcs ID-ját.
+    /// Dinamikus újrahozzárendelés — futár visszaér a warehouse-ba,
+    /// és feltölti a csomagjait a szabad helyekre (max MaxCapacity-ig).
     ///
-    /// Ez az EGYETLEN hely ahol Euklideszi távolságot számolunk.
-    /// Azért kell, mert koordinátából (x, y) gráf-csúcsot (node ID)
-    /// kell csinálni, és ehhez nincs más módszer.
+    /// FOLYAMAT A SZIMULÁCIÓBAN:
+    ///   1. Futár kézbesít, AssignedOrderIds.Count csökken
+    ///   2. Ha üres → visszamegy a legközelebbi SAJÁT ZÓNÁS warehouse-ba
+    ///   3. Ott meghívjuk AssignNextBatch()-t
+    ///   4. Visszakapja az új rendeléseket, kimegy velük
     ///
-    /// Minden más távolságszámítás Dijkstra-alapú!
+    /// KÜLÖNBSÉG AssignToNearest-től:
+    ///   - Nem egy rendelést rendel hozzá, hanem annyit, amennyi fér
+    ///   - A futár már a warehouse-nál van (nem kell odamenni)
+    ///   - Csak a saját zónájában lévő pending rendelésekből válogat
     /// </summary>
-    /// <param name="location">Koordináta (x, y)</param>
-    /// <returns>A legközelebbi csúcs ID-ja a gráfban</returns>
+    /// <param name="courier">A visszatért futár (már a warehouse-nál van)</param>
+    /// <param name="pendingOrders">Az összes még ki nem osztott rendelés</param>
+    /// <returns>Az újonnan hozzárendelt rendelések listája</returns>
+    public List<DeliveryOrder> AssignNextBatch(
+        Courier courier,
+        List<DeliveryOrder> pendingOrders)
+    {
+        _logger.LogInformation(
+            "Új köteg hozzárendelése: {CourierName} " +
+            "(szabad helyek: {Remaining}/{Max})",
+            courier.Name, courier.RemainingCapacity, courier.MaxCapacity);
+
+        // Csak a futár zónájában lévő, még ki nem osztott rendelések
+        var eligibleOrders = pendingOrders
+            .Where(o =>
+                o.Status == OrderStatus.Pending
+                && courier.CanWorkInZone(o.ZoneId))
+            .ToList();
+
+        if (eligibleOrders.Count == 0)
+        {
+            _logger.LogInformation(
+                "{CourierName}: nincs várakozó rendelés a zónáiban [{Zones}]",
+                courier.Name,
+                string.Join(", ", courier.AssignedZoneIds));
+            return new List<DeliveryOrder>();
+        }
+
+        int slotsAvailable = courier.RemainingCapacity;
+        var newlyAssigned = new List<DeliveryOrder>();
+
+        foreach (var order in eligibleOrders)
+        {
+            if (newlyAssigned.Count >= slotsAvailable) break;
+
+            order.Status = OrderStatus.Assigned;
+            order.AssignedCourierId = courier.Id;
+            courier.AssignedOrderIds.Add(order.Id);
+
+            if (courier.Status == CourierStatus.Available)
+                courier.Status = CourierStatus.Busy;
+
+            newlyAssigned.Add(order);
+
+            _logger.LogInformation(
+                "  📦 {OrderNumber} → {CourierName} (Zóna {ZoneId})",
+                order.OrderNumber, courier.Name, order.ZoneId);
+        }
+
+        _logger.LogInformation(
+            "{CourierName}: {Count} új rendelés hozzárendelve " +
+            "(kapacitás most: {Current}/{Max})",
+            courier.Name, newlyAssigned.Count,
+            courier.AssignedOrderIds.Count, courier.MaxCapacity);
+
+        return newlyAssigned;
+    }
+
+    // ====================================================
+    // Segédmetódus
+    // ====================================================
+
+    /// <summary>
+    /// A koordinátához legközelebbi gráf-csúcs ID-ja.
+    /// Ez az EGYETLEN hely ahol Euklideszi távolságot számolunk.
+    /// </summary>
     private int FindNearestNodeId(Location location)
     {
         int nearestId = 0;
@@ -236,7 +263,6 @@ public class GreedyAssignmentService
 
         foreach (var node in _cityGraph.Nodes)
         {
-            // Euklideszi távolság képlete: √((x₂-x₁)² + (y₂-y₁)²)
             double dx = node.Location.X - location.X;
             double dy = node.Location.Y - location.Y;
             double distance = Math.Sqrt(dx * dx + dy * dy);

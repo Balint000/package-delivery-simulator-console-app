@@ -1,59 +1,70 @@
+// ============================================================
+// IDeliverySimulationService.cs
+// ============================================================
+// A kézbesítési szimuláció service interfésze.
+//
+// FRISSÍTÉS (2026. március):
+// A LoadCouriersAsync() és LoadOrdersAsync() metódusok
+// kikerültek ebből az interfészből, mert kiszerveztük
+// a saját dedikált osztályaikba:
+//   - CourierLoader  (Infrastructure/Loaders/)
+//   - OrderLoader    (Infrastructure/Loaders/)
+//
+// Ez az interfész most csak két dologért felel:
+//   1. Rendelés hozzárendelése futárhoz (greedy)
+//   2. Szimuláció futtatása (egy futár, egy rendelés)
+// ============================================================
+
 namespace package_delivery_simulator_console_app.Services.Interfaces;
 
 using package_delivery_simulator.Domain.Entities;
 
 /// <summary>
-/// Kézbesítési szimuláció service - központi vezérlő.
-///
-/// FELELŐSSÉGEK:
-/// - Futárok és rendelések inicializálása
-/// - Rendelések hozzárendelése futárokhoz (greedy algoritmus)
-/// - Szimuláció futtatása (1 futár útja)
-/// - Státusz követés és frissítés
-///
-/// NEM FELELŐS:
-/// - UI kiírás (azt a Presentation layer csinálja)
-/// - Gráf betöltés (azt az Infrastructure csinálja)
+/// A kézbesítési szimuláció service interfésze.
 /// </summary>
 public interface IDeliverySimulationService
 {
     /// <summary>
-    /// Futárok betöltése (JSON-ból vagy memóriából).
-    /// </summary>
-    Task<List<Courier>> LoadCouriersAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Rendelések betöltése (JSON-ból vagy memóriából).
-    /// </summary>
-    Task<List<DeliveryOrder>> LoadOrdersAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Egy rendelés hozzárendelése a legközelebbi elérhető futárhoz (greedy).
+    /// Egy rendelés hozzárendelése a legközelebbi elérhető futárhoz.
     ///
     /// GREEDY ALGORITMUS:
-    /// - Keresi az összes Available státuszú futárt
-    /// - Kiválasztja a legközelebb állót (legrövidebb út a rendeléshez)
-    /// - Hozzárendeli a rendelést
+    /// - Megkeresi az összes Available státuszú futárt
+    /// - Dijkstrával kiszámolja mindegyik távolságát a rendeléshez
+    /// - A legközelebbit választja és hozzárendeli
+    ///
+    /// MEGJEGYZÉS:
+    /// A tényleges algoritmus a GreedyAssignmentService-ben van,
+    /// ez az interfész metódus csak delegálja oda a hívást.
     /// </summary>
     /// <param name="order">A hozzárendelendő rendelés</param>
-    /// <param name="availableCouriers">Elérhető futárok listája</param>
-    /// <returns>A kiválasztott futár (vagy null, ha nincs elérhető)</returns>
-    Courier? AssignOrderToNearestCourier(DeliveryOrder order, List<Courier> availableCouriers);
+    /// <param name="availableCouriers">Az összes futár listája</param>
+    /// <returns>A kiválasztott futár, vagy null ha nincs szabad</returns>
+    Courier? AssignOrderToNearestCourier(
+        DeliveryOrder order,
+        List<Courier> availableCouriers);
 
     /// <summary>
-    /// Egy futár útjának szimulálása (1 rendelés kézbesítése).
+    /// Egy futár teljes kézbesítési útjának szimulálása.
     ///
-    /// LÉPÉSEK:
-    /// 1. Útvonal számítás (jelenlegi pozíció → rendelés címe)
-    /// 2. Útvonal bejárása (node-ról node-ra)
-    /// 3. Forgalom frissítés minden lépésnél
-    /// 4. Késés detektálás és értesítés
-    /// 5. Státusz frissítések (Busy → Delivering → Available)
+    /// FOLYAMAT:
+    ///   futár jelenlegi pozíció
+    ///     → raktár (csomag felvétel)
+    ///     → kézbesítési cím (csomag átadása)
+    ///     → futár visszaáll Available státuszra
+    ///
+    /// VISSZATÉRÉSI ÉRTÉK:
+    /// SimulationResult rekord, ami tartalmazza:
+    ///   - Success:            sikerült-e a kézbesítés
+    ///   - ActualTimeMinutes:  tényleges kézbesítési idő
+    ///   - IdealTimeMinutes:   ideális idő (forgalom nélkül)
+    ///   - WasDelayed:         volt-e késés (>20% az ideálisnál)
     /// </summary>
-    /// <param name="courier">A futár</param>
-    /// <param name="order">A rendelés</param>
-    /// <param name="cancellationToken">Megszakítás token (graceful shutdown-hoz)</param>
-    /// <returns>Szimuláció eredménye: (Success, ActualTime, IdealTime)</returns>
+    /// <param name="courier">A szimulált futár</param>
+    /// <param name="order">A kézbesítendő rendelés</param>
+    /// <param name="cancellationToken">
+    ///     Megszakítási jel — ha Ctrl+C-t nyom a felhasználó,
+    ///     a szimuláció szépen leáll
+    /// </param>
     Task<SimulationResult> SimulateDeliveryAsync(
         Courier courier,
         DeliveryOrder order,
@@ -61,16 +72,32 @@ public interface IDeliverySimulationService
 }
 
 /// <summary>
-/// Szimuláció eredmény model.
+/// Egy szimuláció eredményét leíró adatosztály.
+///
+/// MIÉRT "record" és nem "class"?
+/// A record egy speciális C# osztály, ami:
+///   - Csak adatokat tárol (nincs üzleti logika)
+///   - Immutable: létrehozás után nem változtatható
+///   - Automatikusan generál ToString(), Equals() metódusokat
+///
+/// Tökéletes olyan adatcsomagokhoz, amiket csak létrehozunk
+/// és átadunk — nem módosítjuk őket utólag.
 /// </summary>
 public record SimulationResult(
-    bool Success,
-    int ActualTimeMinutes,
-    int IdealTimeMinutes,
-    bool WasDelayed)
+    bool Success,             // Sikerült-e a kézbesítés?
+    int ActualTimeMinutes,    // Tényleges kézbesítési idő percben
+    int IdealTimeMinutes,     // Ideális idő forgalom nélkül
+    bool WasDelayed)          // Volt-e késés?
 {
     /// <summary>
-    /// Késés ideje (ha volt).
+    /// A késés mértéke percben.
+    /// Ha nem volt késés, 0-t ad vissza.
+    ///
+    /// Ez egy "computed property" — nem tárolt érték,
+    /// mindig újraszámolja magát a többi mezőből.
     /// </summary>
-    public int DelayMinutes => WasDelayed ? ActualTimeMinutes - IdealTimeMinutes : 0;
+    public int DelayMinutes =>
+        WasDelayed
+            ? ActualTimeMinutes - IdealTimeMinutes
+            : 0;
 }

@@ -90,7 +90,14 @@ public class CourierLoader
         // pl. "name" és "Name" is elfogadott a JSON-ban
         var couriers = JsonSerializer.Deserialize<List<Courier>>(
             jsonContent,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                // Ez kell! A JSON-ban "Available" szöveg van,
+                // de .NET alapból számot (0, 1, 2) várna az enumhoz.
+                // A JsonStringEnumConverter megoldja a szöveg → enum konverziót.
+                Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+            });
 
         // Ha a fájl üres vagy hibás volt, adjunk vissza üres listát
         // A "??=" operátor: "ha null, akkor legyen új lista"

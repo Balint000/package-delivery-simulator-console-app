@@ -77,7 +77,13 @@ public class OrderLoader
 
         var orders = JsonSerializer.Deserialize<List<DeliveryOrder>>(
             jsonContent,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                // Ugyanaz mint a CourierLoader-ben:
+                // a JSON-ban "Pending" szöveg van, nem 0-s szám.
+                Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+            });
 
         orders ??= new List<DeliveryOrder>();
 

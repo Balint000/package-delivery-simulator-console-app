@@ -1,164 +1,359 @@
-﻿using System;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using package_delivery_simulator.Domain.Entities;
+﻿// ============================================================
+// Program.cs
+// ============================================================
+// A program belépési pontja — itt indul minden.
+//
+// ARCHITEKTÚRA (manuális bekötés, DI nélkül):
+//
+//   Program.cs
+//     │
+//     ├── CityGraphLoader      → betölti a városgráfot (JSON)
+//     ├── WarehouseService     → megkeresi a raktárakat a gráfban
+//     ├── CourierLoader        → betölti a futárokat (JSON)
+//     ├── OrderLoader          → betölti a rendeléseket (JSON)
+//     ├── GreedyAssignmentService → hozzárendeli a rendeléseket futárokhoz
+//     └── DeliverySimulationService → szimulálja a kézbesítéseket
+//
+// MIÉRT MANUÁLIS BEKÖTÉS (nem IHost + DI)?
+//   - Jobban látható, mi jön létre és milyen sorrendben
+//   - Kezdőknek érthetőbb mint a "varázslatos" DI container
+//   - Később könnyű átírni IHost-ra (csak a new-okat kell kicserélni)
+//
+// SZIMULÁCIÓ MENETE:
+//   1. Városgráf betöltése
+//   2. Futárok és rendelések betöltése
+//   3. Minden rendeléshez: legközelebbi futár megkeresése (greedy)
+//   4. Minden hozzárendelt (futár, rendelés) pár szimulálása egymás után
+//   5. Összesítő kiírása a végén
+// ============================================================
+
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 using package_delivery_simulator.Domain.Enums;
 using package_delivery_simulator_console_app.Infrastructure.Graph;
+using package_delivery_simulator_console_app.Infrastructure.Interfaces;
 using package_delivery_simulator_console_app.Infrastructure.Loaders;
+using package_delivery_simulator_console_app.Infrastructure.Services;
+using package_delivery_simulator_console_app.Services.Assignment;
+using package_delivery_simulator_console_app.Services.Simulation;
 
-class Program
+// ============================================================
+// LOGGER GYÁR LÉTREHOZÁSA
+// ============================================================
+// A ILogger<T> interfészt nem lehet "sima" new-val létrehozni.
+// Szükségünk van egy LoggerFactory-ra, ami előállítja őket.
+//
+// AddSimpleConsole: minden log sor egy sorban jelenik meg,
+// időbélyeggel és szinttel (Info, Warning, Error stb.)
+// ============================================================
+
+using var loggerFactory = LoggerFactory.Create(builder =>
 {
-    static void Main()
+    builder.AddSimpleConsole(options =>
     {
-        Console.WriteLine("╔════════════════════════════════════════════════╗");
-        Console.WriteLine("║   🚚 PACKAGE DELIVERY SIMULATION - JSON DEMO  ║");
-        Console.WriteLine("╚════════════════════════════════════════════════╝\n");
+        // Egy soros formátum: [12:34:56 INF] Üzenet szövege
+        options.SingleLine = true;
 
-        // ===== 1. VÁROS BETÖLTÉSE JSON-BŐL =====
-        string jsonPath = Path.Combine("Data", "city-graph.json");
-        ICityGraph cityGraph;
+        // Időbélyeg formátuma (óra:perc:másodperc)
+        options.TimestampFormat = "[HH:mm:ss] ";
+    });
 
-        try
+    // Csak Information szintű és annál fontosabb logokat mutatunk
+    // (Debug szintű logok nem jelennek meg — azok túl részletesek)
+    builder.SetMinimumLevel(LogLevel.Information);
+});
+
+// ============================================================
+// FEJLÉC KIÍRÁSA
+// ============================================================
+
+Console.WriteLine();
+Console.WriteLine("╔══════════════════════════════════════════════════════╗");
+Console.WriteLine("║       🚚 CSOMAG KÉZBESÍTÉS SZIMULÁCIÓ               ║");
+Console.WriteLine("║          Demo City — Teljes szimuláció               ║");
+Console.WriteLine("╚══════════════════════════════════════════════════════╝");
+Console.WriteLine();
+
+// ============================================================
+// LÉPÉS 1: VÁROSGRÁF BETÖLTÉSE
+// ============================================================
+// A CityGraphLoader beolvassa a city-graph.json fájlt,
+// és létrehoz egy ICityGraph objektumot (csúcsok + élek + Dijkstra).
+// ============================================================
+
+Console.WriteLine("━━━ 1. VÁROSGRÁF BETÖLTÉSE ━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+ICityGraph cityGraph;
+
+try
+{
+    cityGraph = CityGraphLoader.LoadFromJson("Data/city-graph.json");
+}
+catch (Exception ex)
+{
+    Console.ForegroundColor = ConsoleColor.Red;
+    Console.WriteLine($"❌ Hiba a városgráf betöltésekor: {ex.Message}");
+    Console.ResetColor();
+    Console.WriteLine("\nNyomj meg egy billentyűt a kilépéshez...");
+    Console.ReadKey();
+    return; // Leállítjuk a programot, ha nincs gráf
+}
+
+Console.WriteLine($"✅ Gráf betöltve: {cityGraph.Nodes.Count} csúcs\n");
+
+// ============================================================
+// LÉPÉS 2: WAREHOUSE SERVICE INICIALIZÁLÁSA
+// ============================================================
+// A WarehouseService megkeresi a gráfban a Warehouse típusú
+// csúcsokat, és ezeket cache-eli a gyors eléréshez.
+// Muszáj az Initialize() metódust meghívni egyszer!
+// ============================================================
+
+Console.WriteLine("━━━ 2. WAREHOUSE SERVICE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+IWarehouseService warehouseService = new WarehouseService(
+    cityGraph,
+    loggerFactory.CreateLogger<WarehouseService>()
+);
+
+// Initialize() megkeresi az összes Warehouse típusú node-ot
+warehouseService.Initialize();
+
+var warehouses = warehouseService.GetAllWarehouses();
+Console.WriteLine($"✅ {warehouses.Count} raktár megtalálva:");
+foreach (var wh in warehouses)
+{
+    Console.WriteLine($"   📦 [{wh.Id}] {wh.Name} (Zóna {wh.ZoneId})");
+}
+Console.WriteLine();
+
+// ============================================================
+// LÉPÉS 3: FUTÁROK BETÖLTÉSE
+// ============================================================
+
+Console.WriteLine("━━━ 3. FUTÁROK BETÖLTÉSE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+var courierLoader = new CourierLoader(
+    loggerFactory.CreateLogger<CourierLoader>()
+);
+
+// LoadAsync() aszinkron — a "await" megvárja az eredményt.
+// A ".GetAwaiter().GetResult()" szinkron hívás: mivel a Main
+// metódus nem async, így kell meghívni az async metódust.
+// (Később, IHost-tal, ez elegánsabban megoldható.)
+var couriers = courierLoader.LoadAsync().GetAwaiter().GetResult();
+
+Console.WriteLine($"✅ {couriers.Count} futár betöltve:");
+foreach (var c in couriers)
+{
+    Console.WriteLine(
+        $"   👤 [{c.Id}] {c.Name} — Zónák: [{string.Join(", ", c.AssignedZoneIds)}]");
+}
+Console.WriteLine();
+
+// ============================================================
+// LÉPÉS 4: RENDELÉSEK BETÖLTÉSE
+// ============================================================
+
+Console.WriteLine("━━━ 4. RENDELÉSEK BETÖLTÉSE ━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+var orderLoader = new OrderLoader(
+    loggerFactory.CreateLogger<OrderLoader>()
+);
+
+var orders = orderLoader.LoadAsync().GetAwaiter().GetResult();
+
+Console.WriteLine($"✅ {orders.Count} rendelés betöltve:");
+foreach (var o in orders)
+{
+    Console.WriteLine(
+        $"   📦 {o.OrderNumber} — {o.CustomerName} (Zóna {o.ZoneId})");
+}
+Console.WriteLine();
+
+// ============================================================
+// LÉPÉS 5: RENDELÉSEK HOZZÁRENDELÉSE FUTÁROKHOZ (GREEDY)
+// ============================================================
+// A GreedyAssignmentService minden rendeléshez megkeresi
+// a legközelebbi szabad futárt, és hozzárendeli.
+//
+// FONTOS: Ha kifogy a szabad futár, a maradék rendelések
+// hozzárendelés nélkül maradnak (null lesz a futárjuk).
+// ============================================================
+
+Console.WriteLine("━━━ 5. GREEDY HOZZÁRENDELÉS ━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+var assignmentService = new GreedyAssignmentService(
+    cityGraph,
+    loggerFactory.CreateLogger<GreedyAssignmentService>()
+);
+
+// AssignAll() visszaad egy Dictionary<int, Courier?>-t:
+//   kulcs   = rendelés ID
+//   érték   = hozzárendelt futár (vagy null ha nem sikerült)
+var assignments = assignmentService.AssignAll(orders, couriers);
+
+// Összesítő kiírása
+int assignedCount = assignments.Values.Count(c => c != null);
+int unassignedCount = assignments.Values.Count(c => c == null);
+
+Console.WriteLine($"\n✅ Hozzárendelés kész: {assignedCount} sikeres, {unassignedCount} sikertelen");
+
+foreach (var (orderId, courier) in assignments)
+{
+    var order = orders.First(o => o.Id == orderId);
+    if (courier != null)
+    {
+        Console.WriteLine(
+            $"   ✔ {order.OrderNumber} → {courier.Name}");
+    }
+    else
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine(
+            $"   ✘ {order.OrderNumber} → nincs szabad futár!");
+        Console.ResetColor();
+    }
+}
+
+Console.WriteLine();
+
+// ============================================================
+// LÉPÉS 6: SZIMULÁCIÓ FUTTATÁSA
+// ============================================================
+// Minden hozzárendelt (futár + rendelés) párt szimulálunk
+// EGYMÁS UTÁN (szekvenciálisan).
+//
+// MIÉRT NEM PÁRHUZAMOSAN?
+// A TPL (Task Parallel Library) a következő nagy lépés.
+// Most előbb értjük meg az egy futáros szimulációt,
+// majd kiterjesztjük több párhuzamos futárra.
+// ============================================================
+
+Console.WriteLine("━━━ 6. SZIMULÁCIÓ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+Console.WriteLine("(Nyomj meg egy billentyűt az indításhoz...)");
+Console.ReadKey();
+Console.WriteLine();
+
+var simulationService = new DeliverySimulationService(
+    cityGraph,
+    warehouseService,
+    loggerFactory.CreateLogger<DeliverySimulationService>()
+);
+
+// Megszakítás kezelése: ha Ctrl+C-t nyom a felhasználó,
+// a CancellationToken jelzi az async metódusoknak, hogy álljanak le.
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true; // Megakadályozzuk az azonnali leállást
+    cts.Cancel();    // Jelzünk a service-eknek: álljatok le szépen
+    Console.WriteLine("\n⚠️  Megszakítás kérve... leállítás folyamatban.");
+};
+
+// Szimuláció eredmények gyűjtése
+int totalSuccess = 0;
+int totalDelayed = 0;
+int totalFailed = 0;
+
+// Végigmegyünk az összes hozzárendelésen
+foreach (var (orderId, assignedCourier) in assignments)
+{
+    // Ha nem sikerült futárt rendelni ehhez a rendeléshez, kihagyjuk
+    if (assignedCourier == null) continue;
+
+    var order = orders.First(o => o.Id == orderId);
+
+    Console.WriteLine(new string('─', 54));
+    Console.WriteLine(
+        $"🚚 Szimuláció: {assignedCourier.Name} → {order.OrderNumber}");
+    Console.WriteLine(
+        $"   Ügyfél: {order.CustomerName} | Cím: {order.AddressText}");
+    Console.WriteLine();
+
+    try
+    {
+        // SimulateDeliveryAsync() elvégzi a teljes kézbesítési folyamatot:
+        // futár → raktár → csomag felvétel → kézbesítési cím → kész
+        var result = simulationService
+            .SimulateDeliveryAsync(assignedCourier, order, cts.Token)
+            .GetAwaiter()
+            .GetResult();
+
+        // Eredmény kiírása
+        if (result.Success)
         {
-            cityGraph = CityGraphLoader.LoadFromJson(jsonPath);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Error loading city graph: {ex.Message}");
-            Console.WriteLine("\nPress any key to exit...");
-            Console.ReadKey();
-            return;
-        }
+            totalSuccess++;
 
-        // Gráf kiírása
-        cityGraph.PrintGraph();
-
-        // ===== 2. FUTÁR ÉS RENDELÉS =====
-        Console.WriteLine("STEP 2: Creating delivery scenario...\n");
-
-        var warehouseNode = cityGraph.GetNode(0);  // Central Warehouse
-        var targetNode = cityGraph.GetNode(1);     // North District
-
-        Courier courier = new Courier
-        {
-            Id = 1,
-            Name = "Kovács Péter",
-            CurrentLocation = warehouseNode.Location,
-            Status = CourierStatus.Available
-        };
-
-        DeliveryOrder order = new DeliveryOrder
-        {
-            Id = 101,
-            OrderNumber = "ORD-00101",
-            CustomerName = "Nagy István",
-            AddressText = "North District, Main Street 42",
-            AddressLocation = targetNode.Location,
-            ZoneId = 1,
-            Status = OrderStatus.Pending,
-            CreatedAt = DateTime.Now
-        };
-
-        Console.WriteLine($"👤 Courier: {courier.Name}");
-        Console.WriteLine($"   Start: {warehouseNode.Name}");
-        Console.WriteLine($"\n📦 Order: {order.OrderNumber}");
-        Console.WriteLine($"   Destination: {targetNode.Name}");
-        Console.WriteLine($"   Customer: {order.CustomerName}");
-
-        // ===== 3. IDEÁLIS VS AKTUÁLIS IDŐ =====
-        Console.WriteLine("\n" + new string('=', 60));
-        Console.WriteLine("STEP 3: Calculating delivery times...\n");
-
-        int idealTime = cityGraph.CalculateIdealTime(0, 1);
-        var (path, actualTime) = cityGraph.FindShortestPath(0, 1);
-
-        Console.WriteLine($"⏱️  Ideal time (no traffic): {idealTime} minutes");
-        Console.WriteLine($"🚦 Current time (with traffic): {actualTime} minutes");
-
-        if (actualTime > idealTime)
-        {
-            int delay = actualTime - idealTime;
-            double delayPercent = (double)delay / idealTime * 100;
-
-            Console.ForegroundColor = actualTime > idealTime * 1.2
-                ? ConsoleColor.Red
-                : ConsoleColor.Yellow;
-
-            Console.WriteLine($"⚠️  Delay: +{delay} min ({delayPercent:F1}%)");
-
-            if (actualTime > idealTime * 1.2)
+            if (result.WasDelayed)
             {
-                Console.WriteLine("📧 Customer notification sent!");
+                totalDelayed++;
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine(
+                    $"   ⚠️  KÉSVE kézbesítve | " +
+                    $"Tényleges: {result.ActualTimeMinutes} perc | " +
+                    $"Ideális: {result.IdealTimeMinutes} perc | " +
+                    $"Késés: +{result.DelayMinutes} perc");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine(
+                    $"   ✅ Időben kézbesítve | " +
+                    $"Tényleges: {result.ActualTimeMinutes} perc | " +
+                    $"Ideális: {result.IdealTimeMinutes} perc");
             }
 
             Console.ResetColor();
         }
         else
         {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("✅ On schedule!");
+            totalFailed++;
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("   ❌ Szimuláció sikertelen!");
             Console.ResetColor();
         }
-
-        // Útvonal kiírása
-        cityGraph.PrintPath(path, actualTime);
-
-        // ===== 4. INTERAKTÍV SZIMULÁCIÓ =====
-        Console.WriteLine("\n" + new string('=', 60));
-        Console.WriteLine("STEP 4: Simulating delivery route...");
-        Console.WriteLine("(Press any key to start simulation)\n");
-        Console.ReadKey();
-
-        for (int i = 0; i < path.Count - 1; i++)
-        {
-            int fromId = path[i];
-            int toId = path[i + 1];
-
-            var fromNode = cityGraph.GetNode(fromId);
-            var toNode = cityGraph.GetNode(toId);
-            var edge = cityGraph.GetEdge(fromId, toId);
-
-            Console.WriteLine($"\n🚗 Segment {i + 1}/{path.Count - 1}:");
-            Console.WriteLine($"   {fromNode.Name} → {toNode.Name}");
-            Console.WriteLine($"   Distance: {edge.CurrentTimeMinutes} min");
-            Console.WriteLine($"   Traffic: {edge.TrafficMultiplier:F2}x");
-
-            // Animált progressbar
-            Console.Write("   [");
-            for (int j = 0; j < 30; j++)
-            {
-                Thread.Sleep(edge.CurrentTimeMinutes * 5);
-                Console.Write("█");
-            }
-            Console.WriteLine("]");
-
-            // Forgalom frissítés
-            cityGraph.RegisterCourierMovement(fromId, toId);
-            cityGraph.UpdateTrafficConditions();
-        }
-
-        // ===== 5. BEFEJEZÉS =====
-        Console.WriteLine("\n" + new string('=', 60));
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("✅ DELIVERY COMPLETED!");
-        Console.ResetColor();
-
-        order.Status = OrderStatus.Delivered;
-        courier.CurrentLocation = targetNode.Location;
-
-        Console.WriteLine($"\n📍 Package delivered to: {targetNode.Name}");
-        Console.WriteLine($"📦 Order status: {order.Status}");
-
-        // Forgalom hatás ellenőrzése
-        var (_, newTime) = cityGraph.FindShortestPath(0, 1);
-        Console.WriteLine($"\n📊 Traffic impact:");
-        Console.WriteLine($"   Before: {actualTime} min");
-        Console.WriteLine($"   After:  {newTime} min");
-        Console.WriteLine($"   Change: {(newTime > actualTime ? "+" : "")}{newTime - actualTime} min");
-
-        Console.WriteLine("\n" + new string('=', 60));
-        Console.WriteLine("\nPress any key to exit...");
-        Console.ReadKey();
     }
+    catch (OperationCanceledException)
+    {
+        // Ctrl+C esetén ide kerülünk — leállítjuk a szimulációt
+        Console.WriteLine("\n⚠️  Szimuláció megszakítva.");
+        break;
+    }
+
+    Console.WriteLine();
 }
+
+// ============================================================
+// LÉPÉS 7: VÉGSŐ ÖSSZESÍTŐ
+// ============================================================
+
+Console.WriteLine("━━━ ÖSSZESÍTŐ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+Console.WriteLine($"   📦 Összes rendelés:      {orders.Count}");
+Console.WriteLine($"   ✔  Hozzárendelve:        {assignedCount}");
+Console.WriteLine($"   ✅ Sikeresen kézbesítve: {totalSuccess}");
+
+Console.ForegroundColor = ConsoleColor.Yellow;
+Console.WriteLine($"   ⚠️  Késve kézbesítve:    {totalDelayed}");
+Console.ResetColor();
+
+Console.ForegroundColor = ConsoleColor.Red;
+Console.WriteLine($"   ❌ Sikertelen:           {totalFailed}");
+Console.ResetColor();
+
+Console.WriteLine();
+
+// Futár teljesítmény összesítő
+Console.WriteLine("━━━ FUTÁR TELJESÍTMÉNY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+foreach (var courier in couriers.Where(c => c.TotalDeliveriesCompleted > 0))
+{
+    Console.WriteLine(
+        $"   👤 {courier.Name,-20} | " +
+        $"Kézbesítések: {courier.TotalDeliveriesCompleted,2} | " +
+        $"Késések: {courier.TotalDelayedDeliveries,2} | " +
+        $"Átlag: {courier.AverageDeliveryTime:F1} perc");
+}
+
+Console.WriteLine();
+Console.WriteLine("Nyomj meg egy billentyűt a kilépéshez...");
+Console.ReadKey();

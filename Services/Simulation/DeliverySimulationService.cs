@@ -3,13 +3,14 @@
 // ============================================================
 // Felelőssége: EGY futár kézbesítési útjának szimulálása.
 //
-// MIT NEM CSINÁL MÁR (kiszervezve):
+// MIT NEM CSINÁL (kiszervezve más osztályokba):
 //   - Adatbetöltés → CourierLoader, OrderLoader
 //                    (Infrastructure/Loaders/)
-//   - Hozzárendelés → GreedyAssignmentService
-//                     (Services/Assignment/)
+//   - Hozzárendelés logika → GreedyAssignmentService
+//                            (Services/Assignment/)
 //
 // MIT CSINÁL:
+//   - Delegálja a greedy hozzárendelést (AssignOrderToNearestCourier)
 //   - Végigvezeti a futárt a teljes kézbesítési folyamaton
 //   - Kezeli az állapotátmeneteket (Available → Busy → Available)
 //   - Méri az ideális és tényleges kézbesítési időt
@@ -86,9 +87,6 @@ public class DeliverySimulationService : IDeliverySimulationService
     /// <summary>
     /// DeliverySimulationService létrehozása.
     /// </summary>
-    /// <param name="cityGraph">Városgráf (DI-ból)</param>
-    /// <param name="warehouseService">Warehouse kezelő (DI-ból)</param>
-    /// <param name="logger">Logger (DI-ból)</param>
     public DeliverySimulationService(
         ICityGraph cityGraph,
         IWarehouseService warehouseService,
@@ -100,49 +98,23 @@ public class DeliverySimulationService : IDeliverySimulationService
     }
 
     // ====================================================
-    // INTERFÉSZ METÓDUSOK — betöltés és hozzárendelés
+    // HOZZÁRENDELÉS — delegálás GreedyAssignmentService-nek
     // ====================================================
-    // Az IDeliverySimulationService interfész elvárja ezeket,
-    // de a valódi munkát a dedikált osztályok végzik.
-    // Ez az osztály csak "átirányítja" a hívást a megfelelő helyre.
-    //
-    // MEGJEGYZÉS: Amikor Program.cs-ben bekötjük a DI-t,
-    // ezeket a loader-eket is a konstruktoron keresztül adjuk majd be.
-    // Egyelőre közvetlenül példányosítjuk őket (ez nem ideális, de működik).
 
     /// <summary>
-    /// Futárok betöltése — delegálja a CourierLoader-nek.
-    /// </summary>
-    public async Task<List<Courier>> LoadCouriersAsync(
-        CancellationToken cancellationToken = default)
-    {
-        var loader = new Infrastructure.Loaders.CourierLoader(
-            Microsoft.Extensions.Logging.Abstractions
-                .NullLogger<Infrastructure.Loaders.CourierLoader>.Instance);
-
-        return await loader.LoadAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// Rendelések betöltése — delegálja az OrderLoader-nek.
-    /// </summary>
-    public async Task<List<DeliveryOrder>> LoadOrdersAsync(
-        CancellationToken cancellationToken = default)
-    {
-        var loader = new Infrastructure.Loaders.OrderLoader(
-            Microsoft.Extensions.Logging.Abstractions
-                .NullLogger<Infrastructure.Loaders.OrderLoader>.Instance);
-
-        return await loader.LoadAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// Greedy hozzárendelés — delegálja a GreedyAssignmentService-nek.
+    /// Greedy hozzárendelés — átpasszolja a GreedyAssignmentService-nek.
+    ///
+    /// Ez az osztály nem tartalmazza a greedy algoritmust,
+    /// csak meghívja azt aki igen.
+    /// Ez a "Single Responsibility" elv: minden osztálynak
+    /// egy felelőssége van.
     /// </summary>
     public Courier? AssignOrderToNearestCourier(
         DeliveryOrder order,
         List<Courier> availableCouriers)
     {
+        // A hozzárendelés logikája a GreedyAssignmentService-ben van
+        // (Services/Assignment/GreedyAssignmentService.cs)
         var assignmentService = new Assignment.GreedyAssignmentService(
             _cityGraph,
             Microsoft.Extensions.Logging.Abstractions
@@ -168,10 +140,6 @@ public class DeliverySimulationService : IDeliverySimulationService
     ///   7. Késés detektálás + ügyfélértesítés ha szükséges
     ///   8. Futár visszaáll Available státuszra
     /// </summary>
-    /// <param name="courier">A szimulált futár</param>
-    /// <param name="order">A kézbesítendő rendelés</param>
-    /// <param name="cancellationToken">Megszakítási jel (Ctrl+C kezeléshez)</param>
-    /// <returns>SimulationResult: siker/kudarc, idők, késés-e</returns>
     public async Task<SimulationResult> SimulateDeliveryAsync(
         Courier courier,
         DeliveryOrder order,
@@ -215,7 +183,7 @@ public class DeliverySimulationService : IDeliverySimulationService
             }
 
             warehouseNodeId = warehouse.Id;
-            order.NearestWarehouseNodeId = warehouseNodeId; // Eltároljuk jövőre
+            order.NearestWarehouseNodeId = warehouseNodeId;
         }
 
         _logger.LogInformation(
@@ -244,27 +212,20 @@ public class DeliverySimulationService : IDeliverySimulationService
             totalActualTime += warehouseTime;
         }
 
-        // Futár most a raktárban van
         courier.CurrentWarehouseNodeId = warehouseNodeId;
 
         _logger.LogInformation(
             "📦 {CourierName} megérkezett a raktárba, felvette a csomagot.",
             courier.Name);
 
-        // ---- 4. LÉPÉS: Rendelés státusz frissítése ----
-        // Assigned → InTransit (szállítás alatt)
+        // ---- 4. LÉPÉS: Rendelés státusz: Assigned → InTransit ----
         order.Status = OrderStatus.InTransit;
 
         // ---- 5. LÉPÉS: Kézbesítési cím → gráf csúcs ----
         int deliveryNodeId = FindNearestNodeId(order.AddressLocation);
 
-        _logger.LogDebug(
-            "Kézbesítési cím csúcsa: Node {Id} ({Name})",
-            deliveryNodeId,
-            _cityGraph.GetNode(deliveryNodeId)?.Name ?? "?");
-
         // ---- 6. LÉPÉS: Ideális kézbesítési idő (forgalom NÉLKÜL) ----
-        // Ezt a késés számításhoz tároljuk el.
+        // Ez a késés számításhoz kell — mennyit kellett volna ideálisan.
         int idealTime = _cityGraph.CalculateIdealTime(warehouseNodeId, deliveryNodeId);
         order.IdealDeliveryTimeMinutes = idealTime;
 
@@ -293,9 +254,8 @@ public class DeliverySimulationService : IDeliverySimulationService
         order.Status = OrderStatus.Delivered;
         order.DeliveredAt = DateTime.Now;
         courier.CurrentLocation = _cityGraph.GetNode(deliveryNodeId)!.Location;
-        courier.CurrentWarehouseNodeId = null; // Már nem raktárban van
+        courier.CurrentWarehouseNodeId = null;
 
-        // Futár statisztikák frissítése
         courier.TotalDeliveriesCompleted++;
         courier.TotalDeliveryTimeMinutes += totalActualTime;
 
@@ -318,12 +278,11 @@ public class DeliverySimulationService : IDeliverySimulationService
                 "Ideális: {Ideal} perc, Tényleges: {Actual} perc",
                 order.OrderNumber, delayMinutes, idealTime, deliveryTime);
 
-            // Ügyfélértesítés szimulálása (egyelőre csak log, később saját service)
             if (!order.CustomerNotifiedOfDelay)
             {
                 order.CustomerNotifiedOfDelay = true;
                 _logger.LogInformation(
-                    "📧 Ügyfélértesítés: {CustomerName} ({OrderNumber}) — {Delay} perces késés",
+                    "📧 Ügyfélértesítés: {CustomerName} ({OrderNumber}) — {Delay} perc késés",
                     order.CustomerName, order.OrderNumber, delayMinutes);
             }
         }
@@ -334,7 +293,7 @@ public class DeliverySimulationService : IDeliverySimulationService
                 deliveryTime, idealTime);
         }
 
-        // ---- 10. LÉPÉS: Futár visszaáll szabaddá ----
+        // ---- 10. LÉPÉS: Futár visszaáll Available státuszra ----
         courier.Status = CourierStatus.Available;
         courier.AssignedOrderIds.Remove(order.Id);
 
@@ -355,30 +314,17 @@ public class DeliverySimulationService : IDeliverySimulationService
     /// <summary>
     /// Szimulált mozgás egy útvonal mentén, node-ról node-ra.
     ///
-    /// HOGYAN MŰKÖDIK:
-    /// - Végigmegy az útvonal csúcsain (pl. [0, 5, 1])
-    /// - Minden lépésnél (él bejárásakor):
-    ///     a) Frissíti a futár pozícióját
-    ///     b) Regisztrálja a forgalomhatást az élen
-    ///     c) Vár a szimulációs lépésnyi időt (aszinkron, nem blokkoló!)
-    ///
-    /// THREAD-SAFETY:
-    /// Task.Delay NEM blokkolja a szálat!
-    /// Ezért tud majd több futár egyszerre futni (TPL feladatnál).
+    /// Task.Delay NEM blokkolja a szálat — ezért tud majd
+    /// több futár egyszerre futni (TPL feladatnál).
     /// </summary>
-    /// <param name="courier">A mozgó futár</param>
-    /// <param name="path">Csúcs ID-k listája az útvonalban</param>
-    /// <param name="cancellationToken">Megszakítási jel</param>
     private async Task TraversePath(
         Courier courier,
         List<int> path,
         CancellationToken cancellationToken)
     {
-        // Végigmegy a szomszédos csúcspárokon
-        // Pl. path = [0, 5, 1] → (0→5), (5→1)
         for (int i = 0; i < path.Count - 1; i++)
         {
-            // Minden lépés előtt ellenőrizzük: kaptunk-e leállítási jelet?
+            // Ha Ctrl+C érkezett, leállunk
             cancellationToken.ThrowIfCancellationRequested();
 
             int fromId = path[i];
@@ -403,14 +349,11 @@ public class DeliverySimulationService : IDeliverySimulationService
             // Futár koordinátájának frissítése az új csúcsra
             courier.CurrentLocation = toNode.Location;
 
-            // Forgalom növelése ezen az élen
+            // Forgalom hatásának regisztrálása
             _cityGraph.RegisterCourierMovement(fromId, toId);
-
-            // Kis véletlenszerű forgalomváltozás (realisztikusabb szimuláció)
             _cityGraph.UpdateTrafficConditions();
 
-            // Aszinkron várakozás — minden szimulációs percért SimulationStepDelayMs ms
-            // Task.Delay NEM blokkolja a többi szálat (→ párhuzamos futárok a TPL részben)
+            // Aszinkron várakozás — 1 szimulációs perc = SimulationStepDelayMs ms
             await Task.Delay(
                 edge.CurrentTimeMinutes * SimulationStepDelayMs,
                 cancellationToken);
@@ -419,12 +362,8 @@ public class DeliverySimulationService : IDeliverySimulationService
 
     /// <summary>
     /// A koordinátához legközelebbi gráf-csúcs ID-jának megkeresése.
-    ///
-    /// Ez az EGYETLEN hely ahol Euklideszi távolságot számolunk,
-    /// mert koordinátából (x, y) gráf-node-ot kell csinálni,
-    /// és erre nincs Dijkstra-alapú módszer.
-    ///
-    /// Minden más távolságszámítás Dijkstra-alapú!
+    /// Ez az EGYETLEN hely ahol Euklideszi távolságot számolunk —
+    /// minden más számítás Dijkstra-alapú.
     /// </summary>
     private int FindNearestNodeId(Location location)
     {
@@ -433,7 +372,6 @@ public class DeliverySimulationService : IDeliverySimulationService
 
         foreach (var node in _cityGraph.Nodes)
         {
-            // Euklideszi távolság: √((x₂-x₁)² + (y₂-y₁)²)
             double dx = node.Location.X - location.X;
             double dy = node.Location.Y - location.Y;
             double distance = Math.Sqrt(dx * dx + dy * dy);

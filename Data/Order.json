@@ -4,10 +4,7 @@
     "orderNumber": "ORD-0001",
     "customerName": "Molnár Rita",
     "addressText": "Andrássy út 12, Budapest",
-    "addressLocation": {
-      "x": 47.505,
-      "y": 19.055
-    },
+    "addressLocation": { "x": 0.0, "y": 5.0 },
     "zoneId": 1,
     "status": "Pending",
     "createdAt": "2026-02-20T10:00:00",
@@ -20,10 +17,7 @@
     "orderNumber": "ORD-0002",
     "customerName": "Farkas Bence",
     "addressText": "Kossuth Lajos utca 8, Budapest",
-    "addressLocation": {
-      "x": 47.515,
-      "y": 19.075
-    },
+    "addressLocation": { "x": 5.0, "y": 0.0 },
     "zoneId": 2,
     "status": "Pending",
     "createdAt": "2026-02-20T10:15:00",
@@ -36,10 +30,7 @@
     "orderNumber": "ORD-0003",
     "customerName": "Varga Katalin",
     "addressText": "Bajcsy-Zsilinszky út 23, Budapest",
-    "addressLocation": {
-      "x": 47.522,
-      "y": 19.082
-    },
+    "addressLocation": { "x": 5.0, "y": 3.0 },
     "zoneId": 2,
     "status": "Pending",
     "createdAt": "2026-02-20T10:30:00",
@@ -52,10 +43,7 @@
     "orderNumber": "ORD-0004",
     "customerName": "Horváth Márton",
     "addressText": "Dózsa György út 45, Budapest",
-    "addressLocation": {
-      "x": 47.525,
-      "y": 19.085
-    },
+    "addressLocation": { "x": 0.0, "y": -5.0 },
     "zoneId": 3,
     "status": "Pending",
     "createdAt": "2026-02-20T10:45:00",
@@ -68,10 +56,7 @@
     "orderNumber": "ORD-0005",
     "customerName": "Balogh Zsófia",
     "addressText": "Váci út 67, Budapest",
-    "addressLocation": {
-      "x": 47.518,
-      "y": 19.068
-    },
+    "addressLocation": { "x": 2.0, "y": -5.0 },
     "zoneId": 3,
     "status": "Pending",
     "createdAt": "2026-02-20T11:00:00",
@@ -84,10 +69,7 @@
     "orderNumber": "ORD-0006",
     "customerName": "Lakatos Andrea",
     "addressText": "Rákóczi út 89, Budapest",
-    "addressLocation": {
-      "x": 47.495,
-      "y": 19.035
-    },
+    "addressLocation": { "x": -5.0, "y": 0.0 },
     "zoneId": 4,
     "status": "Pending",
     "createdAt": "2026-02-20T11:15:00",
@@ -100,10 +82,7 @@
     "orderNumber": "ORD-0007",
     "customerName": "Papp Tibor",
     "addressText": "Üllői út 112, Budapest",
-    "addressLocation": {
-      "x": 47.478,
-      "y": 19.018
-    },
+    "addressLocation": { "x": -5.0, "y": -3.0 },
     "zoneId": 4,
     "status": "Pending",
     "createdAt": "2026-02-20T11:30:00",
@@ -116,10 +95,7 @@
     "orderNumber": "ORD-0008",
     "customerName": "Simon Éva",
     "addressText": "Petőfi Sándor utca 34, Budapest",
-    "addressLocation": {
-      "x": 47.508,
-      "y": 19.058
-    },
+    "addressLocation": { "x": -3.0, "y": 3.0 },
     "zoneId": 1,
     "status": "Pending",
     "createdAt": "2026-02-20T11:45:00",
@@ -132,10 +108,7 @@
     "orderNumber": "ORD-0009",
     "customerName": "Németh Dániel",
     "addressText": "József körút 56, Budapest",
-    "addressLocation": {
-      "x": 47.502,
-      "y": 19.048
-    },
+    "addressLocation": { "x": 2.0, "y": 2.0 },
     "zoneId": 1,
     "status": "Pending",
     "createdAt": "2026-02-20T12:00:00",
@@ -148,10 +121,7 @@
     "orderNumber": "ORD-0010",
     "customerName": "Takács Laura",
     "addressText": "Teréz körút 91, Budapest",
-    "addressLocation": {
-      "x": 47.512,
-      "y": 19.072
-    },
+    "addressLocation": { "x": 5.0, "y": 0.0 },
     "zoneId": 2,
     "status": "Pending",
     "createdAt": "2026-02-20T12:15:00",
@@ -164,10 +134,7 @@
     "orderNumber": "ORD-0011",
     "customerName": "Bodnár Tamás",
     "addressText": "Erzsébet körút 38, Budapest",
-    "addressLocation": {
-      "x": 47.528,
-      "y": 19.088
-    },
+    "addressLocation": { "x": 2.0, "y": -5.0 },
     "zoneId": 3,
     "status": "Pending",
     "createdAt": "2026-02-20T12:30:00",
@@ -180,10 +147,7 @@
     "orderNumber": "ORD-0012",
     "customerName": "Fekete Mónika",
     "addressText": "Hámán Kató út 22, Budapest",
-    "addressLocation": {
-      "x": 47.485,
-      "y": 19.025
-    },
+    "addressLocation": { "x": -5.0, "y": -3.0 },
     "zoneId": 4,
     "status": "Pending",
     "createdAt": "2026-02-20T12:45:00",
@@ -196,10 +160,7 @@
     "orderNumber": "ORD-0013",
     "customerName": "Király Viktor",
     "addressText": "Nagykörút 145, Budapest",
-    "addressLocation": {
-      "x": 47.498,
-      "y": 19.042
-    },
+    "addressLocation": { "x": 0.0, "y": 5.0 },
     "zoneId": 1,
     "status": "Pending",
     "createdAt": "2026-02-20T13:00:00",
@@ -212,10 +173,7 @@
     "orderNumber": "ORD-0014",
     "customerName": "Mészáros Klára",
     "addressText": "Nyugati tér 5, Budapest",
-    "addressLocation": {
-      "x": 47.519,
-      "y": 19.078
-    },
+    "addressLocation": { "x": 5.0, "y": 3.0 },
     "zoneId": 2,
     "status": "Pending",
     "createdAt": "2026-02-20T13:15:00",
@@ -228,10 +186,7 @@
     "orderNumber": "ORD-0015",
     "customerName": "Rácz Balázs",
     "addressText": "Lehel utca 73, Budapest",
-    "addressLocation": {
-      "x": 47.532,
-      "y": 19.092
-    },
+    "addressLocation": { "x": 0.0, "y": -5.0 },
     "zoneId": 3,
     "status": "Pending",
     "createdAt": "2026-02-20T13:30:00",

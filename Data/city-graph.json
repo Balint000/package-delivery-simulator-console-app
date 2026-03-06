@@ -1,0 +1,101 @@
+{
+  "cityName": "Demo City",
+  "description": "Példa város 11 csúccsal — zónánként 1 warehouse, csomagkézbesítés szimulációhoz",
+  "nodes": [
+    {
+      "id": 0,
+      "name": "Zone 1 Warehouse",
+      "type": "Warehouse",
+      "location": { "x": 0.0, "y": 0.0 },
+      "zoneId": 1
+    },
+    {
+      "id": 1,
+      "name": "North District",
+      "type": "DeliveryPoint",
+      "location": { "x": 0.0, "y": 5.0 },
+      "zoneId": 1
+    },
+    {
+      "id": 2,
+      "name": "East Side",
+      "type": "DeliveryPoint",
+      "location": { "x": 5.0, "y": 0.0 },
+      "zoneId": 2
+    },
+    {
+      "id": 3,
+      "name": "South Park",
+      "type": "DeliveryPoint",
+      "location": { "x": 0.0, "y": -5.0 },
+      "zoneId": 3
+    },
+    {
+      "id": 4,
+      "name": "West End",
+      "type": "DeliveryPoint",
+      "location": { "x": -5.0, "y": 0.0 },
+      "zoneId": 4
+    },
+    {
+      "id": 5,
+      "name": "Downtown",
+      "type": "Intersection",
+      "location": { "x": 2.0, "y": 2.0 },
+      "zoneId": 1
+    },
+    {
+      "id": 6,
+      "name": "Suburb",
+      "type": "Intersection",
+      "location": { "x": -3.0, "y": 3.0 },
+      "zoneId": 1
+    },
+    {
+      "id": 7,
+      "name": "Industrial",
+      "type": "Intersection",
+      "location": { "x": 3.0, "y": -2.0 },
+      "zoneId": 3
+    },
+    {
+      "id": 8,
+      "name": "Zone 2 Warehouse",
+      "type": "Warehouse",
+      "location": { "x": 5.0, "y": 3.0 },
+      "zoneId": 2
+    },
+    {
+      "id": 9,
+      "name": "Zone 3 Warehouse",
+      "type": "Warehouse",
+      "location": { "x": 2.0, "y": -5.0 },
+      "zoneId": 3
+    },
+    {
+      "id": 10,
+      "name": "Zone 4 Warehouse",
+      "type": "Warehouse",
+      "location": { "x": -5.0, "y": -3.0 },
+      "zoneId": 4
+    }
+  ],
+  "edges": [
+    { "from": 0, "to": 5, "idealTimeMinutes": 5 },
+    { "from": 0, "to": 7, "idealTimeMinutes": 6 },
+    { "from": 0, "to": 6, "idealTimeMinutes": 7 },
+    { "from": 5, "to": 1, "idealTimeMinutes": 8 },
+    { "from": 5, "to": 2, "idealTimeMinutes": 7 },
+    { "from": 7, "to": 2, "idealTimeMinutes": 4 },
+    { "from": 7, "to": 3, "idealTimeMinutes": 5 },
+    { "from": 6, "to": 4, "idealTimeMinutes": 6 },
+    { "from": 6, "to": 1, "idealTimeMinutes": 5 },
+    { "from": 4, "to": 3, "idealTimeMinutes": 9 },
+    { "from": 8, "to": 5, "idealTimeMinutes": 4 },
+    { "from": 8, "to": 2, "idealTimeMinutes": 3 },
+    { "from": 9, "to": 7, "idealTimeMinutes": 3 },
+    { "from": 9, "to": 3, "idealTimeMinutes": 4 },
+    { "from": 10, "to": 6, "idealTimeMinutes": 4 },
+    { "from": 10, "to": 4, "idealTimeMinutes": 3 }
+  ]
+}

@@ -38,6 +38,20 @@ using package_delivery_simulator_console_app.Services.Assignment;
 using package_delivery_simulator_console_app.Services.Simulation;
 
 // ============================================================
+// Program.cs — módosított részlet
+// ============================================================
+// CSAK A MEGVÁLTOZOTT SOROK vannak itt.
+// A többi rész (városgráf, warehouse, greedy, szimuláció) változatlan.
+//
+// VÁLTOZÁSOK:
+//   1. DatabaseInitializer létrehozása és meghívása (0. lépés)
+//   2. CourierLoader és OrderLoader konstruktorba dbInitializer kell
+// ============================================================
+
+// === HOZZÁADANDÓ using a fájl tetejére ===
+using package_delivery_simulator_console_app.Infrastructure.Database;
+
+// ============================================================
 // LOGGER GYÁR LÉTREHOZÁSA
 // ============================================================
 // A ILogger<T> interfészt nem lehet "sima" new-val létrehozni.
@@ -62,6 +76,26 @@ using var loggerFactory = LoggerFactory.Create(builder =>
     // (Debug szintű logok nem jelennek meg — azok túl részletesek)
     builder.SetMinimumLevel(LogLevel.Information);
 });
+
+// ============================================================
+// LÉPÉS 0 (ÚJ): ADATBÁZIS INICIALIZÁLÁSA
+// ============================================================
+// Ha a simulator.db fájl nem létezik:
+//   → létrehozza a táblákat és beolvassa a JSON fájlokat (seed)
+// Ha már létezik:
+//   → nem csinál semmit, csak kapcsolatot biztosít a loadereknek
+// ============================================================
+
+Console.WriteLine("━━━ 0. ADATBÁZIS INICIALIZÁLÁSA ━━━━━━━━━━━━━━━━━━━━━━");
+
+var dbInitializer = new DatabaseInitializer(
+    loggerFactory.CreateLogger<DatabaseInitializer>()
+    // Opcionális 2. paraméter: "Data/simulator.db" az alapértelmezett
+);
+
+await dbInitializer.InitializeAsync();
+Console.WriteLine();
+
 
 // ============================================================
 // FEJLÉC KIÍRÁSA
@@ -128,20 +162,22 @@ foreach (var wh in warehouses)
 Console.WriteLine();
 
 // ============================================================
-// LÉPÉS 3: FUTÁROK BETÖLTÉSE
+// LÉPÉS 3: FUTÁROK BETÖLTÉSE  (módosítva)
 // ============================================================
 
 Console.WriteLine("━━━ 3. FUTÁROK BETÖLTÉSE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
 var courierLoader = new CourierLoader(
-    loggerFactory.CreateLogger<CourierLoader>()
+    loggerFactory.CreateLogger<CourierLoader>(),
+    dbInitializer    // <-- ÚJ: dbInitializer az adatbázis kapcsolathoz
 );
+
+var couriers = await courierLoader.LoadAsync();
 
 // LoadAsync() aszinkron — a "await" megvárja az eredményt.
 // A ".GetAwaiter().GetResult()" szinkron hívás: mivel a Main
 // metódus nem async, így kell meghívni az async metódust.
 // (Később, IHost-tal, ez elegánsabban megoldható.)
-var couriers = courierLoader.LoadAsync().GetAwaiter().GetResult();
 
 Console.WriteLine($"✅ {couriers.Count} futár betöltve:");
 foreach (var c in couriers)
@@ -152,16 +188,18 @@ foreach (var c in couriers)
 Console.WriteLine();
 
 // ============================================================
-// LÉPÉS 4: RENDELÉSEK BETÖLTÉSE
+// LÉPÉS 4: RENDELÉSEK BETÖLTÉSE  (módosítva)
 // ============================================================
 
 Console.WriteLine("━━━ 4. RENDELÉSEK BETÖLTÉSE ━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
 var orderLoader = new OrderLoader(
-    loggerFactory.CreateLogger<OrderLoader>()
+    loggerFactory.CreateLogger<OrderLoader>(),
+    dbInitializer    // <-- ÚJ: dbInitializer az adatbázis kapcsolathoz
 );
 
-var orders = orderLoader.LoadAsync().GetAwaiter().GetResult();
+var orders = await orderLoader.LoadAsync();
+
 
 Console.WriteLine($"✅ {orders.Count} rendelés betöltve:");
 foreach (var o in orders)
@@ -235,10 +273,14 @@ Console.WriteLine("(Nyomj meg egy billentyűt az indításhoz...)");
 Console.ReadKey();
 Console.WriteLine();
 
+// Program.cs — csak a megváltozott sor (6. lépés eleje)
+// A dbInitializer-t 4. paraméterként kell átadni:
+
 var simulationService = new DeliverySimulationService(
     cityGraph,
     warehouseService,
-    loggerFactory.CreateLogger<DeliverySimulationService>()
+    loggerFactory.CreateLogger<DeliverySimulationService>(),
+    dbInitializer    // <-- ÚJ 4. paraméter
 );
 
 // Megszakítás kezelése: ha Ctrl+C-t nyom a felhasználó,

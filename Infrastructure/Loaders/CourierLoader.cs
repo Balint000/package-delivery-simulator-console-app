@@ -1,110 +1,162 @@
 // ============================================================
-// CourierLoader.cs
+// CourierLoader.cs — SQLite verzió
 // ============================================================
-// Felelőssége: Futárok (Courier) betöltése JSON fájlból.
+// Felelőssége: Futárok (Courier) betöltése SQLite adatbázisból.
 //
-// MIÉRT IDE KERÜL (Infrastructure/Loaders)?
-// Az adatbetöltés "infrastruktúra" feladat — ugyanúgy ahogy
-// a CityGraphLoader is itt van. A Service réteg nem tudja
-// (és nem kell tudja), hogy az adatok JSON-ból, adatbázisból
-// vagy bárhonnan máshonnan jönnek. Ez a réteg felelős érte.
+// VÁLTOZÁSOK a JSON verzióhoz képest:
+//   - A File.ReadAllTextAsync + JsonSerializer helyett
+//     SqliteConnection + SqliteDataReader használatos.
+//   - A zóna-kapcsolatokat (CourierZones tábla) egy második
+//     lekérdezéssel töltjük be (N:M → két SELECT).
+//   - A külső interfész (LoadAsync / LoadFromFileAsync szignatúrája)
+//     VÁLTOZATLAN → Program.cs nem igényel módosítást!
+//
+// MIÉRT KÉT LEKÉRDEZÉS A ZÓNÁKHOZ?
+//   Az SQL JOIN helyett szándékosan külön SELECT-et használunk,
+//   mert így a kód jobban olvasható és egyértelműbb hibakereséskor.
+//   (Teljesítményre ilyen kis adatnál nincs hatása.)
 // ============================================================
 
 namespace package_delivery_simulator_console_app.Infrastructure.Loaders;
 
-using System.Text.Json;                      // JSON olvasáshoz
-using Microsoft.Extensions.Logging;         // Naplózáshoz
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using package_delivery_simulator.Domain.Entities;
+using package_delivery_simulator.Domain.Enums;
+using package_delivery_simulator.Domain.ValueObjects;
+using package_delivery_simulator_console_app.Infrastructure.Database;
 
 /// <summary>
-/// Futárok betöltése JSON fájlból.
+/// Futárok betöltése SQLite adatbázisból.
 /// </summary>
 public class CourierLoader
 {
-    // ====== FÜGGŐSÉGEK ======
+    // ====================================================
+    // FÜGGŐSÉGEK
+    // ====================================================
 
-    /// <summary>
-    /// Logger a naplózáshoz.
-    /// </summary>
     private readonly ILogger<CourierLoader> _logger;
+    private readonly DatabaseInitializer _dbInitializer;
 
-    /// <summary>
-    /// A betöltendő JSON fájl alapértelmezett elérési útja.
-    /// </summary>
-    private const string DefaultPath = "Data/Courier.json";
-
-    // ====== KONSTRUKTOR ======
+    // ====================================================
+    // KONSTRUKTOR
+    // ====================================================
 
     /// <summary>
     /// CourierLoader létrehozása.
     /// </summary>
-    /// <param name="logger">Logger (DI-ból jön)</param>
-    public CourierLoader(ILogger<CourierLoader> logger)
+    /// <param name="logger">Logger (DI-ból)</param>
+    /// <param name="dbInitializer">
+    ///     Az adatbázis inicializáló — innen kapjuk a connection string-et
+    ///     és az OpenConnection() metódust.
+    /// </param>
+    public CourierLoader(
+        ILogger<CourierLoader> logger,
+        DatabaseInitializer dbInitializer)
     {
         _logger = logger;
+        _dbInitializer = dbInitializer;
     }
 
-    // ====== BETÖLTÉS ======
+    // ====================================================
+    // BETÖLTÉS
+    // ====================================================
 
     /// <summary>
-    /// Futárok betöltése az alapértelmezett JSON fájlból.
-    /// Ez egy "kényelmi metódus" — meghívja a fő metódust az alapértelmezett úttal.
+    /// Futárok betöltése az SQLite adatbázisból.
+    /// A régi LoadFromFileAsync névhez képest itt az útvonal
+    /// paramétert nem használjuk (az adatbázis útját a
+    /// DatabaseInitializer kezeli), de a szignatúra kompatibilis marad.
     /// </summary>
     /// <param name="cancellationToken">Megszakítási jel</param>
     /// <returns>Futárok listája</returns>
     public Task<List<Courier>> LoadAsync(
         CancellationToken cancellationToken = default)
-        => LoadFromFileAsync(DefaultPath, cancellationToken);
+        => LoadFromDatabaseAsync(cancellationToken);
 
     /// <summary>
-    /// Futárok betöltése egy megadott JSON fájlból.
+    /// Futárok betöltése SQLite-ból.
     ///
-    /// MIÉRT async?
-    /// A fájl olvasás I/O művelet — az operációs rendszer végzi,
-    /// nem a CPU. Az await megvárja anélkül hogy blokkolná a szálat.
+    /// FOLYAMAT:
+    ///   1. Couriers tábla beolvasása → Courier objektumok listája
+    ///   2. CourierZones tábla beolvasása → AssignedZoneIds feltöltése
     /// </summary>
-    /// <param name="jsonFilePath">JSON fájl elérési útja</param>
-    /// <param name="cancellationToken">Megszakítási jel</param>
-    /// <returns>Futárok listája</returns>
-    public async Task<List<Courier>> LoadFromFileAsync(
-        string jsonFilePath,
+    public async Task<List<Courier>> LoadFromDatabaseAsync(
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Futárok betöltése: {Path}", jsonFilePath);
+        _logger.LogInformation("Futárok betöltése SQLite adatbázisból...");
 
-        // Ellenőrzés: létezik-e a fájl?
-        if (!File.Exists(jsonFilePath))
+        await using var connection = _dbInitializer.OpenConnection();
+
+        // ---- 1. LÉPÉS: Futár alaptulajdonságok lekérdezése ----
+        var couriers = new List<Courier>();
+
+        await using (var cmd = connection.CreateCommand())
         {
-            _logger.LogError(
-                "Nem található a futár JSON fájl: {Path}", jsonFilePath);
-            throw new FileNotFoundException(
-                $"A futár adatfájl nem található: {jsonFilePath}");
+            cmd.CommandText = """
+                SELECT Id, Name, CurrentLocationX, CurrentLocationY,
+                       Status, MaxCapacity
+                FROM   Couriers
+                ORDER  BY Id;
+                """;
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                // Status szövegből enum konverzió
+                // ("Available" → CourierStatus.Available)
+                var statusText = reader.GetString(4);
+                var status = Enum.Parse<CourierStatus>(statusText, ignoreCase: true);
+
+                couriers.Add(new Courier
+                {
+                    Id              = reader.GetInt32(0),
+                    Name            = reader.GetString(1),
+                    CurrentLocation = new Location(
+                                          reader.GetDouble(2),
+                                          reader.GetDouble(3)),
+                    Status          = status,
+                    MaxCapacity     = reader.GetInt32(5),
+
+                    // Listákat itt inicializáljuk, a következő lépésben töltjük fel
+                    AssignedZoneIds  = new List<int>(),
+                    AssignedOrderIds = new List<int>()
+                });
+            }
         }
 
-        // Fájl tartalmának beolvasása szövegként (aszinkron)
-        string jsonContent = await File.ReadAllTextAsync(
-            jsonFilePath, cancellationToken);
+        // ---- 2. LÉPÉS: Zóna-hozzárendelések betöltése ----
+        // CourierZones kapcsolótáblából töltjük a AssignedZoneIds listákat.
+        // Egy futárhoz több zóna is tartozhat (pl. [1, 2, 3]).
+        if (couriers.Count > 0)
+        {
+            // Egy lekérdezéssel hozzuk le az összes sort,
+            // majd CourierId szerint szétválogatjuk
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT CourierId, ZoneId
+                FROM   CourierZones
+                ORDER  BY CourierId, ZoneId;
+                """;
 
-        // JSON szöveg → List<Courier> (deszerializálás)
-        // PropertyNameCaseInsensitive: kis-nagybetű érzéketlenség
-        // pl. "name" és "Name" is elfogadott a JSON-ban
-        var couriers = JsonSerializer.Deserialize<List<Courier>>(
-            jsonContent,
-            new JsonSerializerOptions
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+            // Lookup: courierId → Courier objektum (gyors kereséshez)
+            var courierById = couriers.ToDictionary(c => c.Id);
+
+            while (await reader.ReadAsync(cancellationToken))
             {
-                PropertyNameCaseInsensitive = true,
-                // Ez kell! A JSON-ban "Available" szöveg van,
-                // de .NET alapból számot (0, 1, 2) várna az enumhoz.
-                // A JsonStringEnumConverter megoldja a szöveg → enum konverziót.
-                Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
-            });
+                int courierId = reader.GetInt32(0);
+                int zoneId    = reader.GetInt32(1);
 
-        // Ha a fájl üres vagy hibás volt, adjunk vissza üres listát
-        // A "??=" operátor: "ha null, akkor legyen új lista"
-        couriers ??= new List<Courier>();
+                if (courierById.TryGetValue(courierId, out var courier))
+                    courier.AssignedZoneIds.Add(zoneId);
+            }
+        }
 
         _logger.LogInformation(
-            "{Count} futár betöltve: {Path}", couriers.Count, jsonFilePath);
+            "{Count} futár betöltve az adatbázisból.", couriers.Count);
 
         return couriers;
     }

@@ -1,1 +1,1 @@
-namespace package_delivery_simulator.Domain.Entities;
+namespace package_delivery_simulator_console_app.Domain.Entities;

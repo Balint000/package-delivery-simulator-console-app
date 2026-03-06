@@ -1,94 +1,135 @@
 // ============================================================
-// OrderLoader.cs
+// OrderLoader.cs — SQLite verzió
 // ============================================================
-// Felelőssége: Rendelések (DeliveryOrder) betöltése JSON fájlból.
+// Felelőssége: Rendelések (DeliveryOrder) betöltése SQLite-ból.
 //
-// Ugyanolyan logika mint a CourierLoader,
-// csak DeliveryOrder típussal dolgozik.
+// VÁLTOZÁSOK a JSON verzióhoz képest:
+//   - File.ReadAllTextAsync + JsonSerializer helyett
+//     SqliteConnection + SqliteDataReader.
+//   - NULL értékek kezelése: DeliveredAt és AssignedCourierId
+//     az adatbázisban NULL lehet → IsDBNull ellenőrzés szükséges.
+//   - A külső szignatúra (LoadAsync) VÁLTOZATLAN.
 // ============================================================
 
 namespace package_delivery_simulator_console_app.Infrastructure.Loaders;
 
-using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using package_delivery_simulator.Domain.Entities;
+using package_delivery_simulator.Domain.Enums;
+using package_delivery_simulator.Domain.ValueObjects;
+using package_delivery_simulator_console_app.Infrastructure.Database;
 
 /// <summary>
-/// Rendelések betöltése JSON fájlból.
+/// Rendelések betöltése SQLite adatbázisból.
 /// </summary>
 public class OrderLoader
 {
-    // ====== FÜGGŐSÉGEK ======
+    // ====================================================
+    // FÜGGŐSÉGEK
+    // ====================================================
 
-    /// <summary>
-    /// Logger a naplózáshoz.
-    /// </summary>
     private readonly ILogger<OrderLoader> _logger;
+    private readonly DatabaseInitializer _dbInitializer;
 
-    /// <summary>
-    /// A betöltendő JSON fájl alapértelmezett elérési útja.
-    /// </summary>
-    private const string DefaultPath = "Data/Order.json";
-
-    // ====== KONSTRUKTOR ======
+    // ====================================================
+    // KONSTRUKTOR
+    // ====================================================
 
     /// <summary>
     /// OrderLoader létrehozása.
     /// </summary>
-    /// <param name="logger">Logger (DI-ból jön)</param>
-    public OrderLoader(ILogger<OrderLoader> logger)
+    /// <param name="logger">Logger (DI-ból)</param>
+    /// <param name="dbInitializer">Adatbázis inicializáló</param>
+    public OrderLoader(
+        ILogger<OrderLoader> logger,
+        DatabaseInitializer dbInitializer)
     {
         _logger = logger;
+        _dbInitializer = dbInitializer;
     }
 
-    // ====== BETÖLTÉS ======
+    // ====================================================
+    // BETÖLTÉS
+    // ====================================================
 
     /// <summary>
-    /// Rendelések betöltése az alapértelmezett JSON fájlból.
+    /// Rendelések betöltése az SQLite adatbázisból.
     /// </summary>
     /// <param name="cancellationToken">Megszakítási jel</param>
     /// <returns>Rendelések listája</returns>
     public Task<List<DeliveryOrder>> LoadAsync(
         CancellationToken cancellationToken = default)
-        => LoadFromFileAsync(DefaultPath, cancellationToken);
+        => LoadFromDatabaseAsync(cancellationToken);
 
     /// <summary>
-    /// Rendelések betöltése egy megadott JSON fájlból.
+    /// Rendelések betöltése SQLite-ból.
+    ///
+    /// NULLABLE MEZŐK KEZELÉSE:
+    ///   - DeliveredAt      → null amíg nincs kézbesítve
+    ///   - AssignedCourierId → null amíg nincs futár hozzárendelve
+    ///   Ezeket IsDBNull() ellenőrzéssel kezeljük.
+    ///
+    /// DÁTUM FORMÁTUM:
+    ///   Az adatbázisban ISO 8601 szövegként tároljuk ("O" formátum),
+    ///   amit DateTime.Parse() visszaalakít.
     /// </summary>
-    /// <param name="jsonFilePath">JSON fájl elérési útja</param>
-    /// <param name="cancellationToken">Megszakítási jel</param>
-    /// <returns>Rendelések listája</returns>
-    public async Task<List<DeliveryOrder>> LoadFromFileAsync(
-        string jsonFilePath,
+    public async Task<List<DeliveryOrder>> LoadFromDatabaseAsync(
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Rendelések betöltése: {Path}", jsonFilePath);
+        _logger.LogInformation("Rendelések betöltése SQLite adatbázisból...");
 
-        if (!File.Exists(jsonFilePath))
+        await using var connection = _dbInitializer.OpenConnection();
+
+        var orders = new List<DeliveryOrder>();
+
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT Id, OrderNumber, CustomerName, AddressText,
+                   AddressLocationX, AddressLocationY,
+                   ZoneId, Status, CreatedAt, ExpectedDeliveryTime,
+                   DeliveredAt, AssignedCourierId
+            FROM   DeliveryOrders
+            ORDER  BY Id;
+            """;
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
         {
-            _logger.LogError(
-                "Nem található a rendelés JSON fájl: {Path}", jsonFilePath);
-            throw new FileNotFoundException(
-                $"A rendelés adatfájl nem található: {jsonFilePath}");
+            // Status szövegből enum konverzió
+            var statusText = reader.GetString(7);
+            var status = Enum.Parse<OrderStatus>(statusText, ignoreCase: true);
+
+            // NULL-képes mezők olvasása (IsDBNull ellenőrzéssel)
+            DateTime? deliveredAt = reader.IsDBNull(10)
+                ? null
+                : DateTime.Parse(reader.GetString(10));
+
+            int? assignedCourierId = reader.IsDBNull(11)
+                ? null
+                : reader.GetInt32(11);
+
+            orders.Add(new DeliveryOrder
+            {
+                Id                   = reader.GetInt32(0),
+                OrderNumber          = reader.GetString(1),
+                CustomerName         = reader.GetString(2),
+                AddressText          = reader.GetString(3),
+                AddressLocation      = new Location(
+                                           reader.GetDouble(4),
+                                           reader.GetDouble(5)),
+                ZoneId               = reader.GetInt32(6),
+                Status               = status,
+                CreatedAt            = DateTime.Parse(reader.GetString(8)),
+                ExpectedDeliveryTime = DateTime.Parse(reader.GetString(9)),
+                DeliveredAt          = deliveredAt,
+                AssignedCourierId    = assignedCourierId
+            });
         }
 
-        string jsonContent = await File.ReadAllTextAsync(
-            jsonFilePath, cancellationToken);
-
-        var orders = JsonSerializer.Deserialize<List<DeliveryOrder>>(
-            jsonContent,
-            new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-                // Ugyanaz mint a CourierLoader-ben:
-                // a JSON-ban "Pending" szöveg van, nem 0-s szám.
-                Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
-            });
-
-        orders ??= new List<DeliveryOrder>();
-
         _logger.LogInformation(
-            "{Count} rendelés betöltve: {Path}", orders.Count, jsonFilePath);
+            "{Count} rendelés betöltve az adatbázisból.", orders.Count);
 
         return orders;
     }

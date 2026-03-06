@@ -77,7 +77,7 @@ public class DeliverySimulationService : IDeliverySimulationService
     /// Hány százalékkal lehet lassabb a kézbesítés mielőtt "késésnek" számít.
     /// 1.2 = 20%-os tolerancia (pl. 10 perc ideális → 12 percig még OK)
     /// </summary>
-    private const double DelayThreshold = 1.2;
+    private const double DelayThreshold = 1.05;
 
     // ====================================================
     // KONSTRUKTOR

@@ -12,7 +12,6 @@ namespace package_delivery_simulator_console_app.Infrastructure.Graph
         /// </summary>
         public void UpdateTrafficConditions()
         {
-            // Csak felső háromszög (irányítatlan gráf)
             for (int i = 0; i < _nodes.Count; i++)
             {
                 for (int j = i + 1; j < _nodes.Count; j++)
@@ -20,9 +19,23 @@ namespace package_delivery_simulator_console_app.Infrastructure.Graph
                     var edge = _adjacencyMatrix[i, j];
                     if (edge != null)
                     {
-                        // Véletlenszerű változás: ±10%
-                        double change = (_random.NextDouble() - 0.5) * 0.2;
-                        edge.UpdateTraffic(edge.TrafficMultiplier + change);
+                        // Alapvetően pozitív irányba tolva (0 és 15% közötti növekedés)
+                        double change = _random.NextDouble() * 0.15;
+
+                        // Néha (5% esély) történjen egy "baleset", ami megduplázza a menetidőt
+                        if (_random.NextDouble() < 0.1) // 0.05
+                        {
+                            change += 0.5;
+                        }
+
+                        // Ritkán (10% esély) javuljon a forgalom
+                        if (_random.NextDouble() < 0.10)
+                        {
+                            change = -0.1;
+                        }
+
+                        double nextValue = Math.Max(0.8, edge.TrafficMultiplier + change);
+                        edge.UpdateTraffic(nextValue);
                     }
                 }
             }

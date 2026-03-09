@@ -32,7 +32,7 @@ using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
-using package_delivery_simulator_console_app.Presentation.Interfaces;
+using package_delivery_simulator_console_app.Services.Interfaces;
 using package_delivery_simulator_console_app.Services.Assignment;
 
 /// <summary>

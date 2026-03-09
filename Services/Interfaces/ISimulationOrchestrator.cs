@@ -14,7 +14,7 @@
 //   - Mock-olható teszteléshez
 // ============================================================
 
-namespace package_delivery_simulator_console_app.Presentation.Interfaces;
+namespace package_delivery_simulator_console_app.Services.Interfaces;
 
 using package_delivery_simulator.Domain.Entities;
 

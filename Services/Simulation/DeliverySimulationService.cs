@@ -44,32 +44,6 @@ public class DeliverySimulationService : IDeliverySimulationService
         _logger = logger;
     }
 
-    // Delegált metódusok — az interfész elvárja, de a munka máshol történik
-    public async Task<List<Courier>> LoadCouriersAsync(CancellationToken ct = default)
-    {
-        var loader = new Infrastructure.Loaders.CourierLoader(
-            Microsoft.Extensions.Logging.Abstractions
-                .NullLogger<Infrastructure.Loaders.CourierLoader>.Instance);
-        return await loader.LoadAsync(ct);
-    }
-
-    public async Task<List<DeliveryOrder>> LoadOrdersAsync(CancellationToken ct = default)
-    {
-        var loader = new Infrastructure.Loaders.OrderLoader(
-            Microsoft.Extensions.Logging.Abstractions
-                .NullLogger<Infrastructure.Loaders.OrderLoader>.Instance);
-        return await loader.LoadAsync(ct);
-    }
-
-    public Courier? AssignOrderToNearestCourier(DeliveryOrder order, List<Courier> availableCouriers)
-    {
-        var svc = new Assignment.GreedyAssignmentService(
-            _cityGraph,
-            Microsoft.Extensions.Logging.Abstractions
-                .NullLogger<Assignment.GreedyAssignmentService>.Instance);
-        return svc.AssignToNearest(order, availableCouriers);
-    }
-
     // ====================================================
     // FŐ SZIMULÁCIÓ
     // ====================================================

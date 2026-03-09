@@ -1,37 +1,20 @@
 ﻿// ============================================================
 // Program.cs — Az alkalmazás belépési pontja
 //
-// MIÉRT OSZTÁLY?
-//   Az OOP elvnek megfelelően az alkalmazás maga is egy objektum.
-//   A static Main() a .NET konvencionális belépési pontja,
-//   a tényleges logika a privát metódusokban él.
-//
 // FELELŐSSÉG: Setup + service-ek összerakása + szimuláció indítása.
 // Üzleti logika NEM kerül ide — csak objektumok létrehozása és hívás.
-//
-// FÜGGŐSÉGI LÁNC:
-//   Program
-//    ├─ CityGraphLoader        → ICityGraph
-//    ├─ WarehouseService       → IWarehouseService
-//    ├─ CourierLoader
-//    ├─ OrderLoader
-//    ├─ ConsoleNotificationService → INotificationService
-//    ├─ GreedyAssignmentService
-//    ├─ DeliverySimulationService
-//    └─ SimulationOrchestrator
 // ============================================================
 
 using Microsoft.Extensions.Logging;
-using package_delivery_simulator.Domain.Enums;
 using package_delivery_simulator_console_app.Infrastructure.Graph;
 using package_delivery_simulator_console_app.Infrastructure.Interfaces;
 using package_delivery_simulator_console_app.Infrastructure.Loaders;
 using package_delivery_simulator_console_app.Infrastructure.Services;
-using package_delivery_simulator_console_app.Presentation.Interfaces;
+using package_delivery_simulator_console_app.Services.Interfaces;
 using package_delivery_simulator_console_app.Services.Assignment;
 using package_delivery_simulator_console_app.Services.Notification;
+using package_delivery_simulator_console_app.Services.Routing;
 using package_delivery_simulator_console_app.Services.Simulation;
-using package_delivery_simulator_console_app.Services.Interfaces;
 
 /// <summary>
 /// Az alkalmazás fő osztálya.
@@ -39,16 +22,13 @@ using package_delivery_simulator_console_app.Services.Interfaces;
 /// </summary>
 internal static class Program
 {
-    // ── Logger gyár — egy helyen van, minden service ebből kap loggert ──
+    // ── Logger gyár — minden service ebből kap ILogger-t ────────
     private static ILoggerFactory _loggerFactory = null!;
 
     // ────────────────────────────────────────────────────────────
     // BELÉPÉSI PONT
     // ────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// .NET belépési pont. Felépíti a service-eket és elindítja a szimulációt.
-    /// </summary>
     private static async Task Main()
     {
         _loggerFactory = BuildLoggerFactory();
@@ -69,10 +49,9 @@ internal static class Program
             $"\n✅ Setup kész: {cityGraph.Nodes.Count} csúcs | " +
             $"{couriers.Count} futár | {orders.Count} rendelés\n");
 
-        // ── 2. SERVICE-EK ÖSSZERAKÁSA ────────────────────────────
+        // ── 2. SERVICE-EK + SZIMULÁCIÓ ───────────────────────────
         var orchestrator = BuildOrchestrator(cityGraph, warehouseService);
 
-        // ── 3. SZIMULÁCIÓ INDÍTÁSA ───────────────────────────────
         Console.WriteLine("━━━ SZIMULÁCIÓ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         Console.WriteLine("(Nyomj meg egy billentyűt az indításhoz...)");
         Console.ReadKey();
@@ -97,19 +76,16 @@ internal static class Program
             return;
         }
 
-        // ── 4. ÖSSZESÍTŐ ─────────────────────────────────────────
+        // ── 3. ÖSSZESÍTŐ ─────────────────────────────────────────
         PrintSummary(result, couriers);
 
         _loggerFactory.Dispose();
     }
 
     // ────────────────────────────────────────────────────────────
-    // PRIVÁT — Setup lépések
+    // PRIVÁT — Setup
     // ────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Logger gyár létrehozása. Minden service ebből kap ILogger-t.
-    /// </summary>
     private static ILoggerFactory BuildLoggerFactory() =>
         LoggerFactory.Create(builder =>
         {
@@ -121,9 +97,6 @@ internal static class Program
             builder.SetMinimumLevel(LogLevel.Information);
         });
 
-    /// <summary>
-    /// Városgráf betöltése JSON-ból. Hiba esetén null-t ad vissza.
-    /// </summary>
     private static ICityGraph? LoadCityGraph()
     {
         try
@@ -139,10 +112,6 @@ internal static class Program
         }
     }
 
-    /// <summary>
-    /// WarehouseService létrehozása és inicializálása.
-    /// Az Initialize() megkeresi a gráfban az összes Warehouse node-ot.
-    /// </summary>
     private static IWarehouseService BuildWarehouseService(ICityGraph cityGraph)
     {
         var service = new WarehouseService(
@@ -152,9 +121,6 @@ internal static class Program
         return service;
     }
 
-    /// <summary>
-    /// Futárok betöltése JSON fájlból.
-    /// </summary>
     private static async Task<List<package_delivery_simulator.Domain.Entities.Courier>>
         LoadCouriersAsync()
     {
@@ -162,9 +128,6 @@ internal static class Program
         return await loader.LoadAsync();
     }
 
-    /// <summary>
-    /// Rendelések betöltése JSON fájlból.
-    /// </summary>
     private static async Task<List<package_delivery_simulator.Domain.Entities.DeliveryOrder>>
         LoadOrdersAsync()
     {
@@ -174,36 +137,45 @@ internal static class Program
 
     /// <summary>
     /// Az összes service összerakása és az orchestrator visszaadása.
+    ///
+    /// SORREND:
+    ///   1. NotificationService  — független, semmit sem kap
+    ///   2. AssignmentService    — csak cityGraph-ot kap
+    ///   3. RouteService         — csak cityGraph-ot kap
+    ///   4. SimulationService    — cityGraph + warehouseService + notificationService
+    ///   5. Orchestrator         — assignmentService + simulationService + routeService
     /// </summary>
     private static SimulationOrchestrator BuildOrchestrator(
         ICityGraph cityGraph,
         IWarehouseService warehouseService)
     {
-        // Értesítési service — késés esetén konzolra ír
         var notificationService = new NotificationService(
             _loggerFactory.CreateLogger<NotificationService>());
 
-        // Greedy hozzárendelő — legközelebbi szabad futárt találja meg
         var assignmentService = new GreedyAssignmentService(
             cityGraph,
             _loggerFactory.CreateLogger<GreedyAssignmentService>());
 
-        // Kézbesítési szimuláció — egy futár + egy rendelés teljes útja
+        // Nearest Neighbor útvonal-optimalizáló
+        var routeService = new NearestNeighborRouteService(
+            cityGraph,
+            _loggerFactory.CreateLogger<NearestNeighborRouteService>());
+
         var simulationService = new DeliverySimulationService(
             cityGraph,
             warehouseService,
             notificationService,
             _loggerFactory.CreateLogger<DeliverySimulationService>());
 
-        // Orchestrator — vezényli az egész szimulációt
         return new SimulationOrchestrator(
             assignmentService,
             simulationService,
+            routeService,
             _loggerFactory.CreateLogger<SimulationOrchestrator>());
     }
 
     // ────────────────────────────────────────────────────────────
-    // PRIVÁT — Konzol kiírások
+    // PRIVÁT — Kiírások
     // ────────────────────────────────────────────────────────────
 
     private static void PrintHeader()

@@ -45,6 +45,7 @@ dotnet build
 
 # Futtatás
 dotnet run
+```
 
 ## 📊 Algoritmusok
 

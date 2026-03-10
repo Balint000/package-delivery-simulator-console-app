@@ -14,6 +14,10 @@ namespace package_delivery_simulator_console_app.Infrastructure.Graph
         /// 2. Mindig a legközelebbi látogatatlan csúcsot választjuk
         /// 3. Frissítjük szomszédok távolságát ha jobb utat találunk
         /// 4. Ismételjük amíg el nem érjük a célt vagy kifogy a csúcs
+        ///
+        /// THREAD-SAFETY:
+        /// Csak olvas az _adjacencyMatrix-ból (CurrentTimeMinutes),
+        /// semmit nem ír — párhuzamos futárok egyszerre hívhatják.
         /// </summary>
         public (List<int> Path, int TotalTime) FindShortestPath(
             int startNodeId,
@@ -62,7 +66,7 @@ namespace package_delivery_simulator_console_app.Infrastructure.Graph
                 // 2. Megjelöljük látogatottnak
                 visited[minIndex] = true;
 
-                // 3. Szomszédok frissítése
+                // 3. Szomszédok frissítése — CurrentTimeMinutes-t OLVASSUK (nem írjuk)
                 for (int neighbor = 0; neighbor < _nodes.Count; neighbor++)
                 {
                     var edge = _adjacencyMatrix[minIndex, neighbor];
@@ -100,44 +104,83 @@ namespace package_delivery_simulator_console_app.Infrastructure.Graph
         }
 
         /// <summary>
-        /// Ideális kézbesítési idő számítása (forgalom nélkül).
-        /// Átmenetileg minden élt ideális állapotra állít.
+        /// Ideális kézbesítési idő számítása forgalom NÉLKÜL.
+        ///
+        /// RÉGI MEGKÖZELÍTÉS (thread-unsafe volt!):
+        ///   Átmenetileg minden élt 1.0x-ra állított → Dijkstra → visszaállított.
+        ///   Ha két futár egyszerre hívta, az egyik futár "ideális" körülmények
+        ///   közt mért, miközben a másik épp visszaállított — hibás eredmény.
+        ///
+        /// ÚJ MEGKÖZELÍTÉS (thread-safe):
+        ///   Saját, önálló Dijkstrát futtat, ami közvetlenül az IdealTimeMinutes-t
+        ///   olvassa — az _adjacencyMatrix-ot egyáltalán NEM MÓDOSÍTJA.
+        ///   Párhuzamos futárok egyszerre hívhatják, nem zavarják egymást.
+        ///
+        /// MIÉRT BIZTONSÁGOS?
+        ///   Az IdealTimeMinutes a gráf betöltése után soha nem változik (readonly jellegű).
+        ///   Csak olvasunk — és a lokális distances[], visited[] tömbök minden
+        ///   hívásban újak, nem osztottak meg a szálak között.
         /// </summary>
         public int CalculateIdealTime(int startNodeId, int endNodeId)
         {
-            // Eredeti forgalom mentése
-            var originalMultipliers = new double[_nodes.Count, _nodes.Count];
+            // Validáció
+            if (startNodeId < 0 || startNodeId >= _nodes.Count ||
+                endNodeId < 0 || endNodeId >= _nodes.Count)
+            {
+                return int.MaxValue;
+            }
+
+            // Lokális Dijkstra — ugyanaz a logika, de IdealTimeMinutes-szal
+            // Ezek a tömbök csak ehhez a híváshoz tartoznak (stack/heap lokális),
+            // tehát más szálak hívásaival NEM keverednek össze.
+            var distances = new int[_nodes.Count];
+            var visited = new bool[_nodes.Count];
 
             for (int i = 0; i < _nodes.Count; i++)
             {
-                for (int j = 0; j < _nodes.Count; j++)
+                distances[i] = int.MaxValue;
+                visited[i] = false;
+            }
+            distances[startNodeId] = 0;
+
+            for (int count = 0; count < _nodes.Count - 1; count++)
+            {
+                // Legközelebbi nem látogatott csúcs
+                int minDistance = int.MaxValue;
+                int minIndex = -1;
+
+                for (int i = 0; i < _nodes.Count; i++)
                 {
-                    var edge = _adjacencyMatrix[i, j];
-                    if (edge != null)
+                    if (!visited[i] && distances[i] < minDistance)
                     {
-                        originalMultipliers[i, j] = edge.TrafficMultiplier;
-                        edge.UpdateTraffic(1.0);  // Ideális
+                        minDistance = distances[i];
+                        minIndex = i;
+                    }
+                }
+
+                if (minIndex == -1) break;
+                visited[minIndex] = true;
+
+                // Szomszédok frissítése — IDEÁLIS idővel (IdealTimeMinutes)
+                // Ez az egyetlen különbség a FindShortestPath-hez képest!
+                for (int neighbor = 0; neighbor < _nodes.Count; neighbor++)
+                {
+                    var edge = _adjacencyMatrix[minIndex, neighbor];
+
+                    if (edge != null && !visited[neighbor])
+                    {
+                        // ↓ IdealTimeMinutes — nem CurrentTimeMinutes!
+                        int newDistance = distances[minIndex] + edge.IdealTimeMinutes;
+
+                        if (newDistance < distances[neighbor])
+                        {
+                            distances[neighbor] = newDistance;
+                        }
                     }
                 }
             }
 
-            // Útvonal számítás ideális körülmények között
-            var (_, idealTime) = FindShortestPath(startNodeId, endNodeId);
-
-            // Eredeti forgalom visszaállítása
-            for (int i = 0; i < _nodes.Count; i++)
-            {
-                for (int j = 0; j < _nodes.Count; j++)
-                {
-                    var edge = _adjacencyMatrix[i, j];
-                    if (edge != null)
-                    {
-                        edge.UpdateTraffic(originalMultipliers[i, j]);
-                    }
-                }
-            }
-
-            return idealTime;
+            return distances[endNodeId];
         }
     }
 }

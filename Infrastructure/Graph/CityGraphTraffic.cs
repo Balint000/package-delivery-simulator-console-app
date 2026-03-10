@@ -23,7 +23,7 @@ namespace package_delivery_simulator_console_app.Infrastructure.Graph
                         double change = _random.NextDouble() * 0.15;
 
                         // Néha (5% esély) történjen egy "baleset", ami megduplázza a menetidőt
-                        if (_random.NextDouble() < 0.1) // 0.05
+                        if (_random.NextDouble() < 0.05) // 0.05
                         {
                             change += 0.5;
                         }

@@ -20,12 +20,18 @@ using package_delivery_simulator_console_app.Services.Routing;
 ///
 /// FOLYAMAT:
 ///   1. Initial batch: minden futár MaxCapacity-ig rendelést kap (greedy)
-///   2. Maradék rendelések → ConcurrentQueue (TPL-re kész)
-///   3. Minden futár saját loop-ban dolgozik:
+///   2. Maradék rendelések → ConcurrentQueue (thread-safe)
+///   3. Minden futár PÁRHUZAMOSAN dolgozik (Task.WhenAll):
 ///        a) Batch sorrendjét NN optimalizálja (futár aktuális pozíciójából)
 ///        b) Optimális sorrendben kézbesít
 ///        c) Visszatér → refill a queue-ból → újra optimalizál → folytatja
 ///   4. OrchestratorResult összegzés
+///
+/// TPL — HOGYAN MŰKÖDIK?
+///   Task.WhenAll elindítja az összes futár loopját egyszerre,
+///   és megvárja, amíg MINDENKI végzett.
+///   Ez olyan, mint amikor egyszerre küldöd útnak az összes futárt,
+///   ahelyett hogy megvárnád az egyiket mielőtt a másik elindul.
 /// </summary>
 public class SimulationOrchestrator : ISimulationOrchestrator
 {
@@ -75,30 +81,60 @@ public class SimulationOrchestrator : ISimulationOrchestrator
             allOrders.Count(o => o.Status == OrderStatus.Pending));
 
         // ── 2. Maradék rendelések → ConcurrentQueue ──────────────
-        // Thread-safe: TPL-lel több futár párhuzamosan vehet ki belőle.
+        //
+        // MIÉRT ConcurrentQueue és nem sima List?
+        //
+        // A List nem thread-safe: ha két futár egyszerre próbál kivenni
+        // egy elemet belőle, az adat megsérülhet — race condition.
+        //
+        // A ConcurrentQueue.TryDequeue() atomikus: garantálja, hogy
+        // ugyanazt az elemet két futár soha nem kapja meg egyszerre.
+        // Ez az egyetlen "kapocs" a párhuzamos futárloopok között.
         var orderQueue = new ConcurrentQueue<DeliveryOrder>(
             allOrders.Where(o => o.Status == OrderStatus.Pending));
+
+        // Minden rendelést ID → objektum szótárban tartunk.
+        // MIÉRT nem kell itt ConcurrentDictionary?
+        // Mert ez a szótár csak OLVASÁSRA van — létrehozás után
+        // senki sem ír bele. Az olvasás párhuzamosan biztonságos.
         var orderLookup = allOrders.ToDictionary(o => o.Id);
 
         _logger.LogInformation("Queue: {Count} rendelés vár", orderQueue.Count);
 
-        // ── 3. Futárloopok ───────────────────────────────────────
-        // MOST: szekvenciális foreach
-        // TPL:  await Task.WhenAll(couriers.Select(c => RunCourierLoopAsync(...)))
-        _logger.LogInformation("━━━ Futárloopok indítása ━━━");
+        // ── 3. Futárloopok — PÁRHUZAMOSAN (Task.WhenAll) ─────────
+        //
+        // SZEKVENCIÁLIS (régi, lassú):
+        //   foreach (var courier in couriers)
+        //       await RunCourierLoopAsync(courier, ...);
+        //   → Kovács végez → Nagy elindul → Tóth elindul → ...
+        //   → Az összes futár sorban, egyik megvárja a másikat.
+        //
+        // PÁRHUZAMOS (új, gyors):
+        //   await Task.WhenAll(couriers.Select(...));
+        //   → Kovács, Nagy, Tóth, Szabó, Kiss EGYSZERRE indul.
+        //   → Mindenki a saját loopján dolgozik, egymástól függetlenül.
+        //   → Amikor MINDENKI végzett, megy tovább a program.
+        //
+        // HOGYAN MŰKÖDIK A Select() ITT?
+        //   couriers.Select(courier => RunCourierLoopAsync(courier, ...))
+        //   → Minden futárhoz létrehoz egy Task-ot (ígéretet a munkára).
+        //   → A Task elindítja az aszinkron munkát, de NEM várja meg.
+        //   → Task.WhenAll() összegyűjti az összes ígéretet,
+        //     és egyszerre megvárja MINDEGYIKET.
+        //
+        // MIÉRT BIZTONSÁGOS?
+        //   - Minden futárnak saját AssignedOrderIds listája van → nincs megosztás
+        //   - A queue ConcurrentQueue → atomikus TryDequeue(), nincs race condition
+        //   - A városgráf csak OLVASÁSRA van (FindShortestPath, CalculateIdealTime)
+        //     Az utóbbit is javítottuk: már nem írja az _adjacencyMatrix-ot
+        //   - Az orderLookup szótár csak olvasott → biztonságos
+        _logger.LogInformation("━━━ Futárloopok indítása (párhuzamosan) ━━━");
 
-        foreach (var courier in couriers)
-        {
-            if (cancellationToken.IsCancellationRequested) break;
-
-            if (courier.Status == CourierStatus.OffDuty)
-            {
-                _logger.LogInformation("⏭️  {Courier} kihagyva (OffDuty)", courier.Name);
-                continue;
-            }
-
-            await RunCourierLoopAsync(courier, orderQueue, orderLookup, cancellationToken);
-        }
+        await Task.WhenAll(
+            couriers
+                .Where(c => c.Status != CourierStatus.OffDuty)
+                .Select(courier =>
+                    RunCourierLoopAsync(courier, orderQueue, orderLookup, cancellationToken)));
 
         // ── 4. Összesítés ────────────────────────────────────────
         sw.Stop();
@@ -128,16 +164,20 @@ public class SimulationOrchestrator : ISimulationOrchestrator
     // ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Egy futár teljes életciklusa.
+    /// Egy futár teljes életciklusa — párhuzamosan fut a többivel.
     ///
-    /// ÚJ a korábbi verzióhoz képest:
-    ///   A batch szimulálása ELŐTT a NearestNeighborRouteService
-    ///   optimális sorrendbe rendezi a rendeléseket.
+    /// MIÉRT BIZTONSÁGOS PÁRHUZAMOSAN?
     ///
-    ///   Kiindulás: courier.CurrentNodeId (ahol éppen áll — warehouse vagy utolsó cím)
-    ///   → legközelebbi rendelés először
-    ///   → onnan a következő legközelebbi
-    ///   → ...
+    ///   Minden futárnak SAJÁT adatai vannak:
+    ///     - courier.AssignedOrderIds  → csak ez a futár módosítja
+    ///     - courier.CurrentNodeId     → csak ez a futár módosítja
+    ///     - courier.TotalDeliveries*  → csak ez a futár módosítja
+    ///
+    ///   A MEGOSZTOTT erőforrás egyetlen dolog:
+    ///     - orderQueue (ConcurrentQueue) → de a TryDequeue() atomikus,
+    ///       tehát két futár soha nem veszi ki ugyanazt a rendelést.
+    ///
+    ///   A cityGraph és orderLookup CSAK OLVASÁSRA van — biztonságos.
     /// </summary>
     private async Task RunCourierLoopAsync(
         Courier courier,
@@ -156,9 +196,11 @@ public class SimulationOrchestrator : ISimulationOrchestrator
             cancellationToken.ThrowIfCancellationRequested();
 
             // Snapshot a jelenlegi batch-ről.
-            // MIÉRT .ToList()? A SimulateDeliveryAsync kézbesítés után
-            // eltávolítja a rendelést az AssignedOrderIds-ból —
-            // ha közvetlenül iterálnánk rajta, "collection modified" hibát kapnánk.
+            // MIÉRT .ToList()?
+            //   A SimulateDeliveryAsync kézbesítés végén eltávolítja
+            //   a rendelést az AssignedOrderIds-ból. Ha közvetlenül
+            //   iterálnánk rajta, "collection modified" kivételt kapnánk.
+            //   A .ToList() pillanatkép — biztonságos iterálható másolat.
             var currentBatch = courier.AssignedOrderIds
                 .ToList()
                 .Select(id => orderLookup[id])
@@ -180,11 +222,9 @@ public class SimulationOrchestrator : ISimulationOrchestrator
             round++;
 
             // ── Nearest Neighbor optimalizálás ───────────────────
-            // A futár jelenlegi pozíciójából (CurrentNodeId) optimalizálja
-            // a kézbesítési sorrendet. Ez a pozíció az első körben a warehouse,
-            // a következő körökben az előző kézbesítés utáni helyzet.
-            //
-            // Ha csak 1 rendelés van → az NN azonnal visszaadja változatlanul.
+            // A futár jelenlegi pozíciójából optimalizálja a sorrendet.
+            // Thread-safe: saját currentBatch listán és a cityGraph-on
+            // (csak olvas Dijkstrával) dolgozik — más futárokat nem érinti.
             var optimizedBatch = _routeService.OptimizeRoute(
                 startNodeId: courier.CurrentNodeId,
                 orders: currentBatch);
@@ -230,6 +270,10 @@ public class SimulationOrchestrator : ISimulationOrchestrator
 
     /// <summary>
     /// Futár újratöltése a ConcurrentQueue-ból.
+    ///
+    /// THREAD-SAFETY:
+    ///   TryDequeue() atomikus — ha két futár egyszerre hívja,
+    ///   mindkettő más elemet kap vissza. Nem kell lock.
     ///
     /// SZABÁLYOK:
     ///   - Max courier.RemainingCapacity rendelést vesz fel

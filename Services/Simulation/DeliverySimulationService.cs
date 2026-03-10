@@ -42,10 +42,10 @@ public class DeliverySimulationService : IDeliverySimulationService
     private const int SimulationStepDelayMs = 200;
 
     /// <summary>
-    /// Késési küszöb: ha a tényleges idő > ideális * 1.05, késésnek számít.
-    /// Azaz 5%-os tolerancia van.
+    /// Késési küszöb: ha a tényleges idő > ideális * 1.10, késésnek számít.
+    /// Azaz 10%-os tolerancia van.
     /// </summary>
-    private const double DelayThreshold = 1.05;
+    private const double DelayThreshold = 1.10; // 1.05
 
     // ── Konstruktor ──────────────────────────────────────────────
     public DeliverySimulationService(

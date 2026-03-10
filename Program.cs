@@ -182,7 +182,7 @@ internal static class Program
     {
         Console.WriteLine();
         Console.WriteLine("╔══════════════════════════════════════════════════════╗");
-        Console.WriteLine("║       🚚 CSOMAG KÉZBESÍTÉS SZIMULÁCIÓ               ║");
+        Console.WriteLine("║          CSOMAG KÉZBESÍTÉS SZIMULÁCIÓ                ║");
         Console.WriteLine("╚══════════════════════════════════════════════════════╝");
         Console.WriteLine();
     }

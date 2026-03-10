@@ -18,3 +18,5 @@ Ez egy C# nyelven íródott konzolos alkalmazás, amely egy logisztikai csomagsz
 ## Telepítés és Futtatás
 
 A futtatáshoz szükséges a [.NET SDK](https://dotnet.microsoft.com/download).
+
+A projekt a Széchenyi István Egyetem Programozás .NET-ben tárgyára készült.

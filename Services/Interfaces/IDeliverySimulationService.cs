@@ -25,25 +25,6 @@ using package_delivery_simulator.Domain.Entities;
 public interface IDeliverySimulationService
 {
     /// <summary>
-    /// Egy rendelés hozzárendelése a legközelebbi elérhető futárhoz.
-    ///
-    /// GREEDY ALGORITMUS:
-    /// - Megkeresi az összes Available státuszú futárt
-    /// - Dijkstrával kiszámolja mindegyik távolságát a rendeléshez
-    /// - A legközelebbit választja és hozzárendeli
-    ///
-    /// MEGJEGYZÉS:
-    /// A tényleges algoritmus a GreedyAssignmentService-ben van,
-    /// ez az interfész metódus csak delegálja oda a hívást.
-    /// </summary>
-    /// <param name="order">A hozzárendelendő rendelés</param>
-    /// <param name="availableCouriers">Az összes futár listája</param>
-    /// <returns>A kiválasztott futár, vagy null ha nincs szabad</returns>
-    Courier? AssignOrderToNearestCourier(
-        DeliveryOrder order,
-        List<Courier> availableCouriers);
-
-    /// <summary>
     /// Egy futár teljes kézbesítési útjának szimulálása.
     ///
     /// FOLYAMAT:

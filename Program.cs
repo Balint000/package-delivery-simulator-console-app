@@ -1,185 +1,144 @@
 ﻿// ============================================================
-// Program.cs
-// ============================================================
-// A program belépési pontja — setup + orchestrator hívás.
+// Program.cs — Az alkalmazás belépési pontja
 //
-// ARCHITEKTÚRA (manuális bekötés, DI nélkül):
+// FELELŐSSÉG: Service-ek összerakása (wiring) + presenterek hívása.
 //
-//   Program.cs
-//     │
-//     ├── CityGraphLoader      → városgráf betöltése (JSON)
-//     ├── WarehouseService     → raktárak azonosítása a gráfban
-//     ├── CourierLoader        → futárok betöltése (JSON)
-//     ├── OrderLoader          → rendelések betöltése (JSON)
-//     └── SimulationOrchestrator.RunAsync()
-//               ├─ GreedyAssignmentService.AssignAll()  [initial batch]
-//               ├─ ConcurrentQueue<DeliveryOrder>        [maradék rendelések]
-//               └─ RunCourierLoopAsync() × futárok
-//                     └─ DeliverySimulationService.SimulateDeliveryAsync()
+// AMI IDE NEM KERÜL:
+//   - Console.Write / Console.WriteLine / Console.ReadKey → SetupPresenter / SimulationPresenter
+//   - Üzleti logika                                       → Service-ek
+//   - Adatbetöltés logikája                               → SetupPresenter
+//   - Megjelenítési logika                                → Presentation layer
 //
-// VÁLTOZÁS A KORÁBBI VERZIÓHOZ KÉPEST:
-//   RÉGEN: Program.cs vezérelte a foreach-et, szimuláció és hozzárendelés
-//          keveredett itt.
-//   MOST:  Program.cs csak setup. A teljes logika a SimulationOrchestrator-ban van.
-//
-// KÖVETKEZŐ LÉPÉS (TPL):
-//   SimulationOrchestrator.RunAsync()-ban a szekvenciális foreach
-//   Task.WhenAll-ra cserélhető — Program.cs nem változik.
+// FLOW:
+//   SetupPresenter.RunAsync()
+//     → betölti az adatokat, megjeleni a boot képernyőt, visszaadja a SetupResult-ot
+//   BuildOrchestrator()
+//     → összerakja a service-eket (pure wiring, semmi megjelenítés)
+//   SimulationPresenter.RunAsync()
+//     → futtatja a szimulációt, kezeli a megjelenítést, kiírja az összesítőt
 // ============================================================
 
 using Microsoft.Extensions.Logging;
-using package_delivery_simulator.Domain.Enums;
-using package_delivery_simulator_console_app.Infrastructure.Graph;
 using package_delivery_simulator_console_app.Infrastructure.Interfaces;
-using package_delivery_simulator_console_app.Infrastructure.Loaders;
-using package_delivery_simulator_console_app.Infrastructure.Services;
+using package_delivery_simulator_console_app.Infrastructure.Graph;
+using package_delivery_simulator_console_app.Presentation;
 using package_delivery_simulator_console_app.Services.Assignment;
+using package_delivery_simulator_console_app.Services.Notification;
+using package_delivery_simulator_console_app.Services.Routing;
 using package_delivery_simulator_console_app.Services.Simulation;
-using package_delivery_simulator_console_app.Presentation.Interfaces;
 
-// ============================================================
-// LOGGER GYÁR
-// ============================================================
-
-using var loggerFactory = LoggerFactory.Create(builder =>
+/// <summary>
+/// Az alkalmazás fő osztálya.
+/// A <see cref="Main"/> metódus a .NET belépési pontja.
+/// </summary>
+internal static class Program
 {
-    builder.AddSimpleConsole(options =>
+    // ── Logger gyár — minden service ebből kap ILogger-t ────────
+    //
+    // MEGJEGYZÉS: Az ILogger-ek átmenetileg megmaradnak a service-ekben,
+    // de LogLevel.None-ra vannak állítva — a konzolra nem írnak semmit.
+    // A megjelenítést kizárólag a Presentation layer végzi.
+    // Később (külön refaktorálási lépésben) az ILogger hívások
+    // el fognak kerülni a service-ekből.
+    private static ILoggerFactory _loggerFactory = null!;
+
+    // ────────────────────────────────────────────────────────────
+    // BELÉPÉSI PONT
+    // ────────────────────────────────────────────────────────────
+
+    private static async Task Main()
     {
-        options.SingleLine = true;
-        options.TimestampFormat = "[HH:mm:ss] ";
-    });
-    builder.SetMinimumLevel(LogLevel.Information);
-});
+        // LogLevel.None: az ILogger-ek némák — semmi nem kerül a konzolra tőlük.
+        // A Presentation layer (SetupPresenter, SimulationPresenter) végez
+        // minden megjelenítést.
+        _loggerFactory = BuildLoggerFactory(LogLevel.None);
 
-// ============================================================
-// FEJLÉC
-// ============================================================
+        // ── 1. SETUP FÁZIS ───────────────────────────────────────
+        // Boot képernyő + adatbetöltés a Presentation layerben.
+        var setupPresenter = new SetupPresenter(_loggerFactory);
+        var setup = await setupPresenter.RunAsync();
 
-Console.WriteLine();
-Console.WriteLine("╔══════════════════════════════════════════════════════╗");
-Console.WriteLine("║       🚚 CSOMAG KÉZBESÍTÉS SZIMULÁCIÓ               ║");
-Console.WriteLine("║          Demo City — Queue-alapú szimuláció          ║");
-Console.WriteLine("╚══════════════════════════════════════════════════════╝");
-Console.WriteLine();
+        // Ha a betöltés sikertelen volt (pl. hiányzó fájl),
+        // a SetupPresenter már megjelentette a hibát — kilépünk.
+        if (setup == null) return;
 
-// ============================================================
-// SETUP — adatok betöltése és service-ek inicializálása
-// ============================================================
+        // ── 2. SERVICE WIRING ────────────────────────────────────
+        // Pure wiring: objektumok létrehozása és összekapcsolása.
+        // Semmi megjelenítés nem történik itt.
+        var renderer = new LiveConsoleRenderer();
+        var orchestrator = BuildOrchestrator(setup.CityGraph, setup.WarehouseService, renderer);
 
-Console.WriteLine("━━━ SETUP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        // ── 3. SZIMULÁCIÓ FÁZIS ──────────────────────────────────
+        // Az élő UI megjelenítése, a szimuláció futtatása
+        // és az összesítő kiírása a Presentation layerben.
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            // Cancel jelzése, de a folyamat ne lépjen ki azonnal
+            // — a SimulationPresenter kezeli a renderer lezárását
+            e.Cancel = true;
+            cts.Cancel();
+        };
 
-// 1. Városgráf
-ICityGraph cityGraph;
-try
-{
-    cityGraph = CityGraphLoader.LoadFromJson("Data/city-graph.json");
+        var simulationPresenter = new SimulationPresenter(orchestrator, renderer);
+        await simulationPresenter.RunAsync(setup, cts.Token);
+
+        _loggerFactory.Dispose();
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // PRIVÁT — Service wiring
+    // ────────────────────────────────────────────────────────────
+
+    private static ILoggerFactory BuildLoggerFactory(LogLevel level) =>
+        LoggerFactory.Create(builder =>
+        {
+            builder.AddSimpleConsole(options =>
+            {
+                options.SingleLine = true;
+                options.TimestampFormat = "[HH:mm:ss] ";
+            });
+            builder.SetMinimumLevel(level);
+        });
+
+    /// <summary>
+    /// Az összes service összerakása és az orchestrator visszaadása.
+    ///
+    /// SORREND:
+    ///   1. NotificationService  — független, semmit sem kap
+    ///   2. AssignmentService    — csak cityGraph-ot kap
+    ///   3. RouteService         — csak cityGraph-ot kap
+    ///   4. SimulationService    — cityGraph + warehouseService + notificationService + renderer
+    ///   5. Orchestrator         — assignmentService + simulationService + routeService
+    /// </summary>
+    private static SimulationOrchestrator BuildOrchestrator(
+        ICityGraph cityGraph,
+        IWarehouseService warehouseService,
+        LiveConsoleRenderer renderer)
+    {
+        var notificationService = new NotificationService(
+            _loggerFactory.CreateLogger<NotificationService>());
+
+        var assignmentService = new GreedyAssignmentService(
+            cityGraph,
+            _loggerFactory.CreateLogger<GreedyAssignmentService>());
+
+        // Nearest Neighbor útvonal-optimalizáló
+        var routeService = new NearestNeighborRouteService(
+            cityGraph,
+            _loggerFactory.CreateLogger<NearestNeighborRouteService>());
+
+        var simulationService = new DeliverySimulationService(
+            cityGraph,
+            warehouseService,
+            notificationService,
+            _loggerFactory.CreateLogger<DeliverySimulationService>(),
+            renderer);   // ← renderer átadása
+
+        return new SimulationOrchestrator(
+            assignmentService,
+            simulationService,
+            routeService,
+            _loggerFactory.CreateLogger<SimulationOrchestrator>());
+    }
 }
-catch (Exception ex)
-{
-    Console.ForegroundColor = ConsoleColor.Red;
-    Console.WriteLine($"❌ Hiba a városgráf betöltésekor: {ex.Message}");
-    Console.ResetColor();
-    return;
-}
-
-// 2. Warehouse service
-IWarehouseService warehouseService = new WarehouseService(
-    cityGraph,
-    loggerFactory.CreateLogger<WarehouseService>());
-warehouseService.Initialize();
-
-// 3. Futárok betöltése
-var courierLoader = new CourierLoader(loggerFactory.CreateLogger<CourierLoader>());
-var couriers = await courierLoader.LoadAsync();
-
-// 4. Rendelések betöltése
-var orderLoader = new OrderLoader(loggerFactory.CreateLogger<OrderLoader>());
-var orders = await orderLoader.LoadAsync();
-
-Console.WriteLine($"\n✅ Setup kész: {cityGraph.Nodes.Count} csúcs | " +
-                  $"{couriers.Count} futár | {orders.Count} rendelés");
-Console.WriteLine();
-
-// ============================================================
-// SERVICE-EK ÖSSZERAKÁSA (manuális DI)
-// ============================================================
-
-var assignmentService = new GreedyAssignmentService(
-    cityGraph,
-    loggerFactory.CreateLogger<GreedyAssignmentService>());
-
-var simulationService = new DeliverySimulationService(
-    cityGraph,
-    warehouseService,
-    loggerFactory.CreateLogger<DeliverySimulationService>());
-
-var orchestrator = new SimulationOrchestrator(
-    assignmentService,
-    simulationService,
-    loggerFactory.CreateLogger<SimulationOrchestrator>());
-
-// ============================================================
-// SZIMULÁCIÓ INDÍTÁSA
-// ============================================================
-
-Console.WriteLine("━━━ SZIMULÁCIÓ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-Console.WriteLine("(Nyomj meg egy billentyűt az indításhoz...)");
-Console.ReadKey();
-Console.WriteLine();
-
-using var cts = new CancellationTokenSource();
-Console.CancelKeyPress += (_, e) =>
-{
-    e.Cancel = true;
-    cts.Cancel();
-    Console.WriteLine("\n⚠️  Megszakítás kérve... leállítás folyamatban.");
-};
-
-OrchestratorResult result;
-try
-{
-    result = await orchestrator.RunAsync(couriers, orders, cts.Token);
-}
-catch (OperationCanceledException)
-{
-    Console.WriteLine("\n⚠️  Szimuláció megszakítva.");
-    return;
-}
-
-// ============================================================
-// ÖSSZESÍTŐ
-// ============================================================
-
-Console.WriteLine();
-Console.WriteLine("━━━ ÖSSZESÍTŐ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-Console.WriteLine($"   📦 Összes rendelés:      {result.TotalOrders}");
-Console.WriteLine($"   ✅ Sikeresen kézbesítve: {result.Delivered}  " +
-                  $"({result.SuccessRate:P0})");
-
-Console.ForegroundColor = ConsoleColor.Yellow;
-Console.WriteLine($"   ⚠️  Késve kézbesítve:    {result.Delayed}  " +
-                  $"({result.DelayRate:P0} a kézbesítettekből)");
-Console.ResetColor();
-
-Console.ForegroundColor = ConsoleColor.Red;
-Console.WriteLine($"   ❌ Sikertelen:           {result.Failed}");
-Console.WriteLine($"   📭 Sosem kiosztva:       {result.Unassigned}");
-Console.ResetColor();
-
-Console.WriteLine($"   ⏱️  Teljes futásidő:      {result.WallClockTime.TotalSeconds:F1}s");
-
-// Futár teljesítmény
-Console.WriteLine();
-Console.WriteLine("━━━ FUTÁR TELJESÍTMÉNY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-foreach (var courier in couriers.Where(c => c.TotalDeliveriesCompleted > 0))
-{
-    Console.WriteLine(
-        $"   👤 {courier.Name,-20} | " +
-        $"Kézb.: {courier.TotalDeliveriesCompleted,2} | " +
-        $"Késés: {courier.TotalDelayedDeliveries,2} | " +
-        $"Átlag: {courier.AverageDeliveryTime:F1} perc");
-}
-
-Console.WriteLine();
-Console.WriteLine("Nyomj meg egy billentyűt a kilépéshez...");
-Console.ReadKey();

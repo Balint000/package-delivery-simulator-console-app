@@ -5,6 +5,7 @@ using package_delivery_simulator.Domain.Entities;
 using package_delivery_simulator.Domain.Enums;
 using package_delivery_simulator_console_app.Infrastructure.Graph;
 using package_delivery_simulator_console_app.Infrastructure.Interfaces;
+using package_delivery_simulator_console_app.Presentation.Interfaces;
 using package_delivery_simulator_console_app.Services.Interfaces;
 
 /// <summary>
@@ -24,6 +25,11 @@ using package_delivery_simulator_console_app.Services.Interfaces;
 ///   ICityGraph           — Dijkstra + útvonal bejárás
 ///   IWarehouseService    — legjobb warehouse meghatározása a futárhoz
 ///   INotificationService — késési értesítés küldése
+///
+/// ÚJ a korábbi verzióhoz képest:
+///   ILiveConsoleRenderer injection — a szimuláció kulcspontjain
+///   frissíti a futár státuszát és eseményeket naplóz.
+///   Ha null a renderer (pl. teszteléskor), minden csendben fut.
 /// </summary>
 public class DeliverySimulationService : IDeliverySimulationService
 {
@@ -32,6 +38,12 @@ public class DeliverySimulationService : IDeliverySimulationService
     private readonly IWarehouseService _warehouseService;
     private readonly INotificationService _notificationService;
     private readonly ILogger<DeliverySimulationService> _logger;
+
+    /// <summary>
+    /// Opcionális renderer — ha null, nincs élő UI.
+    /// Null-safe hívásokkal használjuk: _renderer?.LogEvent(...)
+    /// </summary>
+    private readonly ILiveConsoleRenderer? _renderer;
 
     // ── Konstansok ───────────────────────────────────────────────
 
@@ -42,22 +54,24 @@ public class DeliverySimulationService : IDeliverySimulationService
     private const int SimulationStepDelayMs = 200;
 
     /// <summary>
-    /// Késési küszöb: ha a tényleges idő > ideális * 1.10, késésnek számít.
-    /// Azaz 10%-os tolerancia van.
+    /// Késési küszöb: ha a tényleges idő > ideális * 1.05, késésnek számít.
+    /// Azaz 5%-os tolerancia van.
     /// </summary>
-    private const double DelayThreshold = 1.10; // 1.05
+    private const double DelayThreshold = 1.05;
 
     // ── Konstruktor ──────────────────────────────────────────────
     public DeliverySimulationService(
         ICityGraph cityGraph,
         IWarehouseService warehouseService,
         INotificationService notificationService,
-        ILogger<DeliverySimulationService> logger)
+        ILogger<DeliverySimulationService> logger,
+        ILiveConsoleRenderer? renderer = null)   // ← opcionális, alapból null
     {
         _cityGraph = cityGraph;
         _warehouseService = warehouseService;
         _notificationService = notificationService;
         _logger = logger;
+        _renderer = renderer;
     }
 
     // ────────────────────────────────────────────────────────────
@@ -93,9 +107,11 @@ public class DeliverySimulationService : IDeliverySimulationService
     ///   3. Csomag felvétel
     ///   4. Ideális idő kiszámítása (forgalom nélkül, teljes út)
     ///   5. Kézbesítési útvonal bejárása
-    ///   6. Késés detektálás
-    ///   7. Értesítés küldése ha késett (NotificationService végzi)
+    ///   6. Kézbesítés sikeres
+    ///   7. Késés detektálás + értesítés küldése ha késett (NotificationService végzi)
     ///   8. Futár státusz visszaállítása
+    ///
+    /// Minden lépésnél a renderer frissíti az élő UI-t (ha be van kötve).
     /// </summary>
     public async Task<SimulationResult> SimulateDeliveryAsync(
         Courier courier,
@@ -135,6 +151,19 @@ public class DeliverySimulationService : IDeliverySimulationService
                 "🏃 {CourierName} megy a raktárba: Node {From} → Node {To}",
                 courier.Name, courierStartNodeId, warehouseNodeId);
 
+            // ── UI: futár mozog a raktár felé ───────────────────
+            _renderer?.UpdateCourierStatus(
+                courierId: courier.Id,
+                courierName: courier.Name,
+                status: "moving",
+                currentLocation: _cityGraph.GetNode(courierStartNodeId)?.Name ?? "?",
+                targetLocation: bestWarehouse.Name,
+                completedDeliveries: courier.TotalDeliveriesCompleted);
+
+            _renderer?.LogEvent(
+                "moving",
+                $"{courier.Name} → raktárba: {bestWarehouse.Name}");
+
             var (warehousePath, warehouseTime) =
                 _cityGraph.FindShortestPath(courierStartNodeId, warehouseNodeId);
 
@@ -154,6 +183,19 @@ public class DeliverySimulationService : IDeliverySimulationService
         courier.CurrentWarehouseNodeId = warehouseNodeId;
         order.Status = OrderStatus.InTransit;
 
+        // ── UI: csomag felvétel ──────────────────────────────────
+        _renderer?.UpdateCourierStatus(
+            courierId: courier.Id,
+            courierName: courier.Name,
+            status: "loading",
+            currentLocation: bestWarehouse.Name,
+            targetLocation: order.AddressText,
+            completedDeliveries: courier.TotalDeliveriesCompleted);
+
+        _renderer?.LogEvent(
+            "pickup",
+            $"{courier.Name} felvette: {order.OrderNumber} ({order.CustomerName})");
+
         _logger.LogInformation(
             "📦 {CourierName} felvette a csomagot a raktárból.", courier.Name);
 
@@ -168,11 +210,23 @@ public class DeliverySimulationService : IDeliverySimulationService
         order.IdealDeliveryTimeMinutes = idealTime;
 
         _logger.LogInformation(
-            "⏱️  Ideális idő (forgalom nélkül): {Total} perc " +
+            "⏱️  Ideális kézbesítési idő (forgalom nélkül): {Total} perc " +
             "(raktárhoz: {WH} + kézbesítés: {Del})",
             idealTime, idealWarehouseTime, idealDeliveryTime);
 
         // ── 5. Kézbesítési útvonal bejárása ─────────────────────
+        var deliveryNode = _cityGraph.GetNode(order.AddressNodeId);
+
+        // ── UI: futár úton a kézbesítési cím felé ───────────────
+        _renderer?.UpdateCourierStatus(
+            courierId: courier.Id,
+            courierName: courier.Name,
+            status: "moving",
+            currentLocation: bestWarehouse.Name,
+            targetLocation: deliveryNode?.Name ?? order.AddressText,
+            completedDeliveries: courier.TotalDeliveriesCompleted,
+            estimatedTimeMinutes: idealDeliveryTime);
+
         _logger.LogInformation(
             "🚗 {CourierName} indul: {Address}",
             courier.Name, order.AddressText);
@@ -220,17 +274,36 @@ public class DeliverySimulationService : IDeliverySimulationService
             // Az értesítés küldése a NotificationService felelőssége
             // (idempotens: ha már értesítve volt, nem küld újra)
             _notificationService.NotifyDelay(order, delayMinutes);
+
+            // ── UI: késett kézbesítés ────────────────────────────
+            _renderer?.LogEvent(
+                "delay",
+                $"{courier.Name} → {order.CustomerName} ({order.OrderNumber}) " +
+                $"+{delayMinutes} perc késés");
         }
         else
         {
             _logger.LogInformation(
-                "🟢 Időben kézbesítve: {Time} perc (ideális: {Ideal} perc)",
+                "🟢 Időben kézbesítve! {Time} perc (ideális: {Ideal} perc)",
                 totalActualTime, idealTime);
+
+            // ── UI: sikeres kézbesítés ───────────────────────────
+            _renderer?.LogEvent(
+                "delivery",
+                $"{courier.Name} → {order.CustomerName} ({order.OrderNumber}) {totalActualTime} perc");
         }
 
         // ── 8. Futár visszaáll Available státuszra ───────────────
         courier.Status = CourierStatus.Available;
         courier.AssignedOrderIds.Remove(order.Id);
+
+        // ── UI: futár státusz frissítés (várakozik a következőre) ─
+        _renderer?.UpdateCourierStatus(
+            courierId: courier.Id,
+            courierName: courier.Name,
+            status: "idle",
+            currentLocation: deliveryNode?.Name ?? "?",
+            completedDeliveries: courier.TotalDeliveriesCompleted);
 
         _logger.LogInformation("💤 {CourierName} újra elérhető.", courier.Name);
 

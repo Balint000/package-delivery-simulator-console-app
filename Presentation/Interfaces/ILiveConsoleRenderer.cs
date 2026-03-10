@@ -75,7 +75,7 @@ public interface ILiveConsoleRenderer
     /// <summary>
     /// Szimuláció befejezése (kurzor visszaállítás, final summary).
     /// </summary>
-    void Finalize();
+    /// void Finalize();
 
     // ====== HELP METÓDUSOK ======
 

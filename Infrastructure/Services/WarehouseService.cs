@@ -7,28 +7,24 @@ using package_delivery_simulator_console_app.Infrastructure.Graph;
 using package_delivery_simulator_console_app.Infrastructure.Interfaces;
 
 /// <summary>
-/// Warehouse kezelő service — KIZÁRÓLAG gráf-alapú logika.
+/// Warehouse kezelő service — kizárólag gráf-alapú logika.
 ///
-/// EGYSZERŰSÍTÉS a korábbi verzióhoz képest:
-/// - FindNearestWarehouse(Location) TÖRÖLVE — koordinátás Euklideszi közelítés volt
-/// - FindNearestNode(Location) privát helper TÖRÖLVE — koordinátás volt
+/// KOORDINÁTA-MENTES: Minden metódus node ID-val és Dijkstrával dolgozik.
 ///
-/// Mivel a rendszerben minden pozíció node ID-val van megadva
-/// (courier.CurrentNodeId, order.AddressNodeId), nincs szükség
-/// koordinátából node-ot keresni. Mindig van node ID-nk.
-///
-/// Az egyetlen logika ami marad: node ID → legközelebbi warehouse (Dijkstra).
+/// EGYETLEN VÁLTOZÁS a korábbi verzióhoz képest:
+///   + FindBestWarehouseForCourier() hozzáadva
+///     (korábban ez a logika a DeliverySimulationService-ben élt)
 /// </summary>
 public class WarehouseService : IWarehouseService
 {
-    // ── Függőségek ──────────────────────────────────────────────
+    // ── Függőségek ───────────────────────────────────────────────
     private readonly ICityGraph _cityGraph;
     private readonly ILogger<WarehouseService> _logger;
 
-    // ── Belső állapot ────────────────────────────────────────────
+    // ── Belső cache ──────────────────────────────────────────────
     /// <summary>
-    /// Cache: az összes warehouse node a gráfban.
-    /// Initialize() tölti fel, utána csak olvasunk belőle.
+    /// Az összes warehouse node a gráfban.
+    /// Initialize() tölti fel egyszer, utána csak olvasunk belőle.
     /// </summary>
     private List<GraphNode> _warehouseNodes = new();
     private bool _isInitialized = false;
@@ -45,30 +41,25 @@ public class WarehouseService : IWarehouseService
     // ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Megkeresi a gráfban az összes Warehouse típusú node-ot és cache-eli.
-    /// Elég egyszer az alkalmazás indulásakor meghívni.
+    /// Megkeresi az összes Warehouse típusú node-ot és cache-eli.
+    /// Alkalmazás indulásakor egyszer kell meghívni.
     /// </summary>
     public void Initialize()
     {
-        // Ne inicializáljuk kétszer
         if (_isInitialized)
         {
-            _logger.LogWarning("WarehouseService már inicializálva van, kihagyva.");
+            _logger.LogWarning("WarehouseService már inicializálva, kihagyva.");
             return;
         }
 
-        // Megkeressük az összes Warehouse típusú node-ot a gráfban
         _warehouseNodes = _cityGraph.Nodes
             .Where(node => node.Type == NodeType.Warehouse)
             .ToList();
 
-        // Ha nincs egyetlen warehouse sem, a szimuláció nem tud futni
         if (_warehouseNodes.Count == 0)
-        {
             throw new InvalidOperationException(
-                "A városgráfban nincs egyetlen Warehouse típusú node sem! " +
-                "Legalább egy warehouse szükséges a szimulációhoz.");
-        }
+                "A gráfban nincs egyetlen Warehouse node sem! " +
+                "Legalább egy szükséges a szimulációhoz.");
 
         _logger.LogInformation(
             "{Count} raktár megtalálva: {Names}",
@@ -84,7 +75,7 @@ public class WarehouseService : IWarehouseService
     // ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Visszaadja az összes raktár node-ot (cache-ből, gyors).
+    /// Az összes raktár node (cache-ből, gyors).
     /// </summary>
     public IReadOnlyList<GraphNode> GetAllWarehouses()
     {
@@ -93,22 +84,15 @@ public class WarehouseService : IWarehouseService
     }
 
     /// <summary>
-    /// A megadott node-tól legközelebbi warehouse megkeresése.
+    /// Legközelebbi warehouse egy node-tól — Dijkstra alapján.
     ///
-    /// MŰKÖDÉS (tisztán gráf-alapú, koordináta NÉLKÜL):
-    ///   1. Ha a node maga warehouse → azonnal visszaadjuk
-    ///   2. Minden ismert warehouse-ra lefuttatjuk Dijkstrát
-    ///   3. A legkisebb útvonal-időjű warehouse-t adjuk vissza
-    ///
-    /// Az útvonal-idő az aktuális forgalmat (TrafficMultiplier) is figyelembe veszi.
+    /// Ha a node maga warehouse → azonnal visszaadja (0 perc).
+    /// Egyébként minden warehouse-ra Dijkstrát futtat, a legrövidebbet adja vissza.
     /// </summary>
-    /// <param name="nodeId">Kiindulási node ID</param>
-    /// <returns>Legközelebbi warehouse node (Dijkstra szerint), vagy null</returns>
     public GraphNode? FindNearestWarehouseFromNode(int nodeId)
     {
         EnsureInitialized();
 
-        // Ellenőrzés: létezik-e a node a gráfban?
         var startNode = _cityGraph.GetNode(nodeId);
         if (startNode == null)
         {
@@ -116,58 +100,60 @@ public class WarehouseService : IWarehouseService
             return null;
         }
 
-        // Ha a node maga warehouse → rögtön visszaadjuk (0 perc)
+        // Ha maga is warehouse, nincs mit keresni
         if (startNode.Type == NodeType.Warehouse)
-        {
-            _logger.LogDebug(
-                "Node {NodeId} ({Name}) maga is warehouse — nem kell keresni.",
-                nodeId, startNode.Name);
             return startNode;
-        }
 
-        // Dijkstrával megkeressük a legközelebbi warehouse-t
-        GraphNode? nearest = null;
-        int shortestTime = int.MaxValue;
-
-        foreach (var warehouse in _warehouseNodes)
-        {
-            // Legrövidebb útvonal az adott node-tól ehhez a warehouse-hoz
-            var (_, pathTime) = _cityGraph.FindShortestPath(nodeId, warehouse.Id);
-
-            // Ha nem elérhető (pl. összefüggetlen gráf), kihagyjuk
-            if (pathTime == int.MaxValue)
-            {
-                _logger.LogWarning(
-                    "Raktár {WName} (Node {WId}) nem elérhető Node {NodeId}-ből.",
-                    warehouse.Name, warehouse.Id, nodeId);
-                continue;
-            }
-
-            // Jobb útvonalat találtunk?
-            if (pathTime < shortestTime)
-            {
-                shortestTime = pathTime;
-                nearest = warehouse;
-            }
-        }
-
-        if (nearest == null)
-        {
-            _logger.LogError(
-                "Node {NodeId}-ből egyetlen warehouse sem elérhető!", nodeId);
-        }
-        else
-        {
-            _logger.LogDebug(
-                "Legközelebbi raktár Node {NodeId}-től: {WName} (Node {WId}) — {Time} perc",
-                nodeId, nearest.Name, nearest.Id, shortestTime);
-        }
-
-        return nearest;
+        return FindClosestWarehouseFromList(nodeId, _warehouseNodes);
     }
 
     /// <summary>
-    /// Igaz, ha a megadott node warehouse.
+    /// A futárhoz legjobb warehouse meghatározása.
+    ///
+    /// LOGIKA:
+    ///   1. Szűrés: a futár saját zónáiban lévő warehouse-ok
+    ///   2. Ezek közül Dijkstra szerinti legközelebbi
+    ///   3. Fallback: ha a futár zónáiban nincs warehouse → abszolút legközelebbi
+    ///
+    /// Ez korábban a DeliverySimulationService-ben volt szétszórva —
+    /// most egyetlen helyen, egyetlen felelősséggel él.
+    /// </summary>
+    public GraphNode? FindBestWarehouseForCourier(Courier courier)
+    {
+        EnsureInitialized();
+
+        // 1. Futár zónáiban lévő warehouse-ok
+        var zoneWarehouses = _warehouseNodes
+            .Where(w => w.ZoneId.HasValue
+                        && courier.AssignedZoneIds.Contains(w.ZoneId.Value))
+            .ToList();
+
+        if (zoneWarehouses.Count > 0)
+        {
+            // 2. Ezek közül a Dijkstra szerinti legközelebbi
+            var best = FindClosestWarehouseFromList(courier.CurrentNodeId, zoneWarehouses);
+
+            if (best != null)
+            {
+                _logger.LogDebug(
+                    "{Courier} legjobb warehouse: {WName} (Node {WId}, saját zóna)",
+                    courier.Name, best.Name, best.Id);
+                return best;
+            }
+        }
+
+        // 3. Fallback: nincs zónás warehouse → abszolút legközelebbi
+        _logger.LogWarning(
+            "{Courier} zónáiban ({Zones}) nincs elérhető warehouse — " +
+            "fallback: abszolút legközelebbi.",
+            courier.Name,
+            string.Join(", ", courier.AssignedZoneIds));
+
+        return FindNearestWarehouseFromNode(courier.CurrentNodeId);
+    }
+
+    /// <summary>
+    /// Igaz, ha a node warehouse.
     /// </summary>
     public bool IsWarehouse(int nodeId)
     {
@@ -176,41 +162,65 @@ public class WarehouseService : IWarehouseService
     }
 
     /// <summary>
-    /// Megadja az adott zóna warehouse node ID-ját.
-    /// Ha a zónában nincs warehouse, null-t ad vissza.
+    /// Az adott zóna warehouse node ID-ja (első találat).
+    /// Null ha nincs warehouse a zónában.
     /// </summary>
     public int? GetWarehouseInZone(int zoneId)
     {
         EnsureInitialized();
-
-        var warehouse = _warehouseNodes.FirstOrDefault(w => w.ZoneId == zoneId);
-
-        if (warehouse == null)
-        {
-            _logger.LogDebug("Zóna {ZoneId}-ban nincs warehouse.", zoneId);
-            return null;
-        }
-
-        _logger.LogDebug(
-            "Zóna {ZoneId} warehouse: {Name} (Node {NodeId})",
-            zoneId, warehouse.Name, warehouse.Id);
-
-        return warehouse.Id;
+        return _warehouseNodes.FirstOrDefault(w => w.ZoneId == zoneId)?.Id;
     }
 
     // ────────────────────────────────────────────────────────────
-    // PRIVÁT HELPER
+    // PRIVÁT SEGÉDMETÓDUSOK
     // ────────────────────────────────────────────────────────────
 
     /// <summary>
+    /// Egy megadott warehouse-lista közül a Dijkstra szerinti legközelebbit adja vissza.
+    ///
+    /// MEGOSZTOTT LOGIKA: FindNearestWarehouseFromNode és FindBestWarehouseForCourier
+    /// is ezt hívja — egyszer van megírva, kétszer használva.
+    /// </summary>
+    /// <param name="fromNodeId">Kiindulási node</param>
+    /// <param name="warehouses">Jelölt warehouse-ok listája</param>
+    /// <returns>Legközelebbi warehouse Dijkstra szerint, vagy null</returns>
+    private GraphNode? FindClosestWarehouseFromList(int fromNodeId, List<GraphNode> warehouses)
+    {
+        GraphNode? nearest = null;
+        int shortestTime = int.MaxValue;
+
+        foreach (var warehouse in warehouses)
+        {
+            var (_, pathTime) = _cityGraph.FindShortestPath(fromNodeId, warehouse.Id);
+
+            if (pathTime == int.MaxValue)
+            {
+                _logger.LogWarning(
+                    "Raktár {WName} (Node {WId}) nem elérhető Node {NodeId}-ből.",
+                    warehouse.Name, warehouse.Id, fromNodeId);
+                continue;
+            }
+
+            if (pathTime < shortestTime)
+            {
+                shortestTime = pathTime;
+                nearest = warehouse;
+            }
+        }
+
+        if (nearest == null)
+            _logger.LogError("Node {NodeId}-ből egyetlen jelölt warehouse sem elérhető!", fromNodeId);
+
+        return nearest;
+    }
+
+    /// <summary>
     /// Ellenőrzi, hogy Initialize() meg lett-e hívva.
-    /// Ha nem, kivételt dob — így nem lehet véletlenül inicializálatlan
-    /// service-t használni.
     /// </summary>
     private void EnsureInitialized()
     {
         if (!_isInitialized)
             throw new InvalidOperationException(
-                "WarehouseService nincs inicializálva. Hívd meg az Initialize()-t először!");
+                "WarehouseService nincs inicializálva — hívd meg az Initialize()-t!");
     }
 }

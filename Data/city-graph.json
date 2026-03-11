@@ -1,6 +1,6 @@
 {
   "cityName": "Demo City",
-  "description": "Példa város 22 csúccsal — zónánként 1 warehouse, 2-3 kézbesítési pont, összekötő csomópontok",
+  "description": "Bővített város 35 csúccsal — zónánként 1 warehouse + 4-5 kézbesítési pont + összekötő csomópontok. Zóna 1 a legterheltebb.",
   "nodes": [
     {
       "id": 0,
@@ -159,40 +159,159 @@
       "type": "Intersection",
       "location": { "x": 4.0, "y": 2.0 },
       "zoneId": null
+    },
+
+    {
+      "id": 22,
+      "name": "Keleti campus",
+      "type": "DeliveryPoint",
+      "location": { "x": 5.0, "y": 10.0 },
+      "zoneId": 1
+    },
+    {
+      "id": 23,
+      "name": "Északi kórház",
+      "type": "DeliveryPoint",
+      "location": { "x": -4.0, "y": 11.0 },
+      "zoneId": 1
+    },
+    {
+      "id": 24,
+      "name": "Északi körút",
+      "type": "Intersection",
+      "location": { "x": -2.0, "y": 9.0 },
+      "zoneId": 1
+    },
+
+    {
+      "id": 25,
+      "name": "Keleti bevásárlóközpont",
+      "type": "DeliveryPoint",
+      "location": { "x": 11.0, "y": 4.0 },
+      "zoneId": 2
+    },
+    {
+      "id": 26,
+      "name": "Repülőtér",
+      "type": "DeliveryPoint",
+      "location": { "x": 12.0, "y": 0.0 },
+      "zoneId": 2
+    },
+    {
+      "id": 27,
+      "name": "Keleti csomópont",
+      "type": "Intersection",
+      "location": { "x": 10.0, "y": 1.5 },
+      "zoneId": 2
+    },
+
+    {
+      "id": 28,
+      "name": "Déli bevásárlóközpont",
+      "type": "DeliveryPoint",
+      "location": { "x": 1.0, "y": -10.0 },
+      "zoneId": 3
+    },
+    {
+      "id": 29,
+      "name": "Gyárváros",
+      "type": "DeliveryPoint",
+      "location": { "x": 7.0, "y": -6.0 },
+      "zoneId": 3
+    },
+    {
+      "id": 30,
+      "name": "Ipari kapu",
+      "type": "Intersection",
+      "location": { "x": 6.0, "y": -3.0 },
+      "zoneId": 3
+    },
+
+    {
+      "id": 31,
+      "name": "Nyugati kórház",
+      "type": "DeliveryPoint",
+      "location": { "x": -11.0, "y": 1.0 },
+      "zoneId": 4
+    },
+    {
+      "id": 32,
+      "name": "Határ utca",
+      "type": "DeliveryPoint",
+      "location": { "x": -8.0, "y": -5.0 },
+      "zoneId": 4
+    },
+    {
+      "id": 33,
+      "name": "Nyugati körút",
+      "type": "Intersection",
+      "location": { "x": -7.0, "y": -2.0 },
+      "zoneId": 4
+    },
+
+    {
+      "id": 34,
+      "name": "Déli körút",
+      "type": "Intersection",
+      "location": { "x": 2.0, "y": -2.0 },
+      "zoneId": null
     }
   ],
   "edges": [
     { "from": 0, "to": 4, "idealTimeMinutes": 3 },
+    { "from": 0, "to": 5, "idealTimeMinutes": 5 },
     { "from": 4, "to": 1, "idealTimeMinutes": 4 },
     { "from": 4, "to": 2, "idealTimeMinutes": 5 },
     { "from": 4, "to": 3, "idealTimeMinutes": 6 },
     { "from": 4, "to": 5, "idealTimeMinutes": 4 },
-    { "from": 0, "to": 5, "idealTimeMinutes": 5 },
+    { "from": 4, "to": 22, "idealTimeMinutes": 7 },
+    { "from": 4, "to": 24, "idealTimeMinutes": 2 },
+    { "from": 24, "to": 1, "idealTimeMinutes": 3 },
+    { "from": 24, "to": 23, "idealTimeMinutes": 4 },
+    { "from": 1, "to": 23, "idealTimeMinutes": 5 },
+    { "from": 2, "to": 22, "idealTimeMinutes": 4 },
 
     { "from": 6, "to": 9, "idealTimeMinutes": 3 },
     { "from": 6, "to": 7, "idealTimeMinutes": 5 },
     { "from": 9, "to": 7, "idealTimeMinutes": 4 },
     { "from": 9, "to": 8, "idealTimeMinutes": 5 },
     { "from": 9, "to": 21, "idealTimeMinutes": 3 },
+    { "from": 7, "to": 25, "idealTimeMinutes": 4 },
+    { "from": 25, "to": 27, "idealTimeMinutes": 3 },
+    { "from": 27, "to": 8, "idealTimeMinutes": 3 },
+    { "from": 27, "to": 26, "idealTimeMinutes": 5 },
+    { "from": 8, "to": 26, "idealTimeMinutes": 6 },
 
     { "from": 10, "to": 13, "idealTimeMinutes": 3 },
     { "from": 10, "to": 14, "idealTimeMinutes": 4 },
     { "from": 13, "to": 11, "idealTimeMinutes": 5 },
     { "from": 13, "to": 14, "idealTimeMinutes": 4 },
     { "from": 14, "to": 12, "idealTimeMinutes": 5 },
+    { "from": 11, "to": 28, "idealTimeMinutes": 5 },
+    { "from": 14, "to": 30, "idealTimeMinutes": 3 },
+    { "from": 30, "to": 29, "idealTimeMinutes": 4 },
+    { "from": 12, "to": 29, "idealTimeMinutes": 4 },
 
     { "from": 15, "to": 18, "idealTimeMinutes": 3 },
-    { "from": 15, "to": 16, "idealTimeMinutes": 8 },
-    { "from": 18, "to": 16, "idealTimeMinutes": 6 },
+    { "from": 15, "to": 33, "idealTimeMinutes": 4 },
     { "from": 18, "to": 17, "idealTimeMinutes": 7 },
-    { "from": 20, "to": 17, "idealTimeMinutes": 5 },
+    { "from": 18, "to": 31, "idealTimeMinutes": 8 },
+    { "from": 17, "to": 31, "idealTimeMinutes": 4 },
+    { "from": 33, "to": 16, "idealTimeMinutes": 4 },
+    { "from": 33, "to": 32, "idealTimeMinutes": 4 },
+    { "from": 18, "to": 33, "idealTimeMinutes": 2 },
 
     { "from": 5, "to": 19, "idealTimeMinutes": 4 },
     { "from": 19, "to": 20, "idealTimeMinutes": 3 },
     { "from": 19, "to": 21, "idealTimeMinutes": 4 },
-    { "from": 19, "to": 13, "idealTimeMinutes": 6 },
     { "from": 19, "to": 18, "idealTimeMinutes": 5 },
     { "from": 20, "to": 18, "idealTimeMinutes": 4 },
-    { "from": 21, "to": 9, "idealTimeMinutes": 3 }
+    { "from": 20, "to": 17, "idealTimeMinutes": 5 },
+    { "from": 21, "to": 9, "idealTimeMinutes": 3 },
+    { "from": 22, "to": 21, "idealTimeMinutes": 5 },
+    { "from": 19, "to": 34, "idealTimeMinutes": 3 },
+    { "from": 34, "to": 13, "idealTimeMinutes": 4 },
+    { "from": 34, "to": 14, "idealTimeMinutes": 3 },
+    { "from": 30, "to": 21, "idealTimeMinutes": 6 }
   ]
 }

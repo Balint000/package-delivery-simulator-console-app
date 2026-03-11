@@ -1,6 +1,7 @@
 namespace package_delivery_simulator_console_app.Presentation;
 
 using package_delivery_simulator.Domain.Entities;
+using package_delivery_simulator_console_app.Reporting;
 using package_delivery_simulator_console_app.Services.Interfaces;
 using package_delivery_simulator_console_app.Services.Simulation;
 
@@ -13,16 +14,16 @@ using package_delivery_simulator_console_app.Services.Simulation;
 ///   - Szimuláció futtatása (orchestratoron keresztül)
 ///   - Ctrl+C / megszakítás kezelése
 ///   - Renderer lezárása (Complete)
-///   - Összesítő és futár-teljesítmény kiírása
+///   - Összesítő, Reporting riportok kiírása
 ///
-/// MIÉRT KÜLÖN OSZTÁLY?
-///   A Program.cs-ben semmi megjelenítés nem történik.
-///   Ez az osztály felelős MINDEN konzol kimenetért a szimuláció fázisban.
+/// RIPORTOK (Reporting réteg):
+///   A szimuláció végén három külön riport készül:
+///   1. DelayReport          — késett rendelések részletesen
+///   2. CourierPerformanceReport — futárok teljesítmény rangsor
+///   3. ZoneLoadReport       — zónánkénti terhelés elemzés
 ///
-/// ÖSSZEFÜGGÉS A TÖBBI OSZTÁLLYAL:
-///   SetupPresenter → SetupResult → SimulationPresenter
-///   A SetupPresenter elkészíti az adatokat, ezt az osztályt
-///   a Program.cs hívja meg a SetupResult-tal és az orchestratorral.
+///   Minden riport a saját osztályában él (Reporting/ mappa),
+///   ez az osztály csak meghívja őket — nem tudja a részleteket.
 /// </summary>
 public class SimulationPresenter
 {
@@ -53,6 +54,7 @@ public class SimulationPresenter
     ///   4. Orchestrator futtatása (a tényleges szimuláció)
     ///   5. Renderer lezárása
     ///   6. Összesítő kiírása
+    ///   7. Riportok kiírása (Reporting réteg)
     ///
     /// Ha Ctrl+C → megszakítás kezelése, renderer lezárása, korai return.
     /// </summary>
@@ -61,13 +63,9 @@ public class SimulationPresenter
         CancellationToken cancellationToken = default)
     {
         // ── 1. Renderer inicializálása ───────────────────────────
-        // Ettől a ponttól az élő UI veszi át az irányítást.
-        // Console.Write()-ot közvetlenül NEM szabad hívni —
-        // csak a renderer metódusain keresztül szabad megjeleníteni bármit.
         _renderer.Initialize("CSOMAG KÉZBESÍTÉS SZIMULÁCIÓ", setup.Couriers.Count);
 
         // ── 2. Futárok kezdeti státusza ──────────────────────────
-        // Minden futár "várakozik" státuszban jelenik meg indulás előtt
         foreach (var courier in setup.Couriers)
         {
             var startNode = setup.CityGraph.GetNode(courier.CurrentNodeId);
@@ -98,20 +96,25 @@ public class SimulationPresenter
         catch (OperationCanceledException)
         {
             // ── Megszakítás kezelése ─────────────────────────────
-            // Renderer lezárása, hogy a kurzor a panel alá kerüljön,
-            // és a megszakítás üzenete ne csússzon bele a panelbe.
             _renderer.Complete();
             PrintCancelled();
             return;
         }
 
         // ── 5. Renderer lezárása ─────────────────────────────────
-        // Kurzor a panel alá kerül, hogy az összesítő ne csússzon
-        // bele az élő UI paneljeibe.
+        // A kurzor a panel alá kerül — ide fognak kerülni a riportok.
         _renderer.Complete();
 
-        // ── 6. Összesítő kiírása ─────────────────────────────────
-        PrintSummary(result, setup.Couriers);
+        // ── 6. Összesítő + Riportok kiírása ─────────────────────
+        // SORREND:
+        //   a) Rövid összesítő (néhány sor)
+        //   b) DelayReport          — ki, mennyit késett
+        //   c) CourierPerformanceReport — futár rangsor
+        //   d) ZoneLoadReport       — zónánkénti terhelés
+        //   e) Kilépési prompt
+        PrintSummary(result);
+        PrintReports(setup.Couriers, setup.Orders);
+        PrintExitPrompt();
     }
 
     // ────────────────────────────────────────────────────────────
@@ -119,8 +122,7 @@ public class SimulationPresenter
     // ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Megszakítás üzenete — a renderer Complete() után hívandó,
-    /// hogy a kurzor már a panel alatt legyen.
+    /// Megszakítás üzenete.
     /// </summary>
     private static void PrintCancelled()
     {
@@ -132,20 +134,16 @@ public class SimulationPresenter
     }
 
     /// <summary>
-    /// Szimuláció utáni összesítő — statisztikák és futár teljesítmény.
-    ///
-    /// A renderer Complete() után hívandó.
+    /// Rövid összesítő a szimuláció fő számairól.
+    /// Ez csak a "top-line" számokat mutatja — a részletek a riportokban vannak.
     /// </summary>
-    private static void PrintSummary(
-        OrchestratorResult result,
-        List<Courier> couriers)
+    private static void PrintSummary(OrchestratorResult result)
     {
         Console.WriteLine();
         Console.ForegroundColor = ConsoleColor.DarkYellow;
         Console.WriteLine("━━━ ÖSSZESÍTŐ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         Console.ResetColor();
 
-        // Általános statisztikák
         Console.WriteLine($"   📦 Összes rendelés:      {result.TotalOrders}");
 
         Console.ForegroundColor = ConsoleColor.Green;
@@ -162,28 +160,44 @@ public class SimulationPresenter
         Console.ResetColor();
 
         Console.WriteLine($"   ⏱️  Teljes futásidő:      {result.WallClockTime.TotalSeconds:F1}s");
+    }
 
-        // Futár teljesítmény táblázat
-        Console.WriteLine();
-        Console.ForegroundColor = ConsoleColor.DarkYellow;
-        Console.WriteLine("━━━ FUTÁR TELJESÍTMÉNY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        Console.ResetColor();
+    /// <summary>
+    /// A három Reporting riport meghívása sorban.
+    ///
+    /// MIÉRT EBBEN A SORRENDBEN?
+    ///   1. Késések → az ember először azt akarja tudni, mi ment rosszul
+    ///   2. Futár teljesítmény → ki a felelős, ki teljesített jól
+    ///   3. Zóna terhelés → strukturális elemzés a jövőre
+    ///
+    /// MIÉRT NEM ITT VAN A RIPORT LOGIKA?
+    ///   Ez az osztály csak összefog — nem tudja a részleteket.
+    ///   Ha a DelayReport formátuma változik, csak a DelayReport.cs-t módosítjuk.
+    ///   Ez a Single Responsibility Principle (SRP) alkalmazása.
+    /// </summary>
+    private static void PrintReports(List<Courier> couriers, List<DeliveryOrder> orders)
+    {
+        // ── 1. Késési riport ─────────────────────────────────────
+        // Megmutatja, melyek késtek, mennyit, és ki szállította.
+        var delayReport = new DelayReport(orders, couriers);
+        delayReport.Print();
 
-        foreach (var courier in couriers.Where(c => c.TotalDeliveriesCompleted > 0))
-        {
-            Console.Write($"   👤 {courier.Name,-20} │ ");
-            Console.Write($"Kézb.: {courier.TotalDeliveriesCompleted,2} │ ");
+        // ── 2. Futár teljesítmény rangsor ────────────────────────
+        // Rangsorolja a futárokat: legtöbb kézbesítés, legkevesebb késés.
+        var performanceReport = new CourierPerformanceReport(couriers);
+        performanceReport.Print();
 
-            // Késések piros színnel kiemelve, ha van
-            if (courier.TotalDelayedDeliveries > 0)
-                Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.Write($"Késés: {courier.TotalDelayedDeliveries,2}");
-            Console.ResetColor();
+        // ── 3. Zónánkénti terhelés ────────────────────────────────
+        // Megmutatja, melyik zóna volt legjobban terhelve.
+        var zoneReport = new ZoneLoadReport(orders, couriers);
+        zoneReport.Print();
+    }
 
-            Console.WriteLine($" │ Átlag: {courier.AverageDeliveryTime:F1} perc");
-        }
-
-        // Kilépés prompt
+    /// <summary>
+    /// Kilépési prompt — a riportok után jelenik meg.
+    /// </summary>
+    private static void PrintExitPrompt()
+    {
         Console.WriteLine();
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.Write("  Nyomj meg egy billentyűt a kilépéshez...");

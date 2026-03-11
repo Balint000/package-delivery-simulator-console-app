@@ -6,7 +6,7 @@
     "status": "Available",
     "assignedZoneIds": [1],
     "assignedOrderIds": [],
-    "maxCapacity": 3
+    "maxCapacity": 4
   },
   {
     "id": 2,
@@ -38,9 +38,72 @@
   {
     "id": 5,
     "name": "Kiss Gábor",
-    "currentNodeId": 0,
+    "currentNodeId": 19,
     "status": "Available",
     "assignedZoneIds": [1, 2, 3],
+    "assignedOrderIds": [],
+    "maxCapacity": 3
+  },
+  {
+    "id": 6,
+    "name": "Fekete Zoltán",
+    "currentNodeId": 0,
+    "status": "Available",
+    "assignedZoneIds": [1],
+    "assignedOrderIds": [],
+    "maxCapacity": 3
+  },
+  {
+    "id": 7,
+    "name": "Molnár Petra",
+    "currentNodeId": 6,
+    "status": "Available",
+    "assignedZoneIds": [2],
+    "assignedOrderIds": [],
+    "maxCapacity": 2
+  },
+  {
+    "id": 8,
+    "name": "Horváth Béla",
+    "currentNodeId": 10,
+    "status": "Available",
+    "assignedZoneIds": [3],
+    "assignedOrderIds": [],
+    "maxCapacity": 3
+  },
+  {
+    "id": 9,
+    "name": "Varga Csilla",
+    "currentNodeId": 15,
+    "status": "Available",
+    "assignedZoneIds": [4],
+    "assignedOrderIds": [],
+    "maxCapacity": 4
+  },
+  {
+    "id": 10,
+    "name": "Balogh Imre",
+    "currentNodeId": 19,
+    "status": "Available",
+    "assignedZoneIds": [3, 4],
+    "assignedOrderIds": [],
+    "maxCapacity": 3
+  },
+  {
+    "id": 11,
+    "name": "Oláh Richárd",
+    "currentNodeId": 6,
+    "status": "Available",
+    "assignedZoneIds": [2],
+    "assignedOrderIds": [],
+    "maxCapacity": 2
+  },
+  {
+    "id": 12,
+    "name": "Pintér Mária",
+    "currentNodeId": 0,
+    "status": "OffDuty",
+    "assignedZoneIds": [1],
     "assignedOrderIds": [],
     "maxCapacity": 3
   }
